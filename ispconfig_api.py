@@ -7,9 +7,11 @@ Handles authentication, zone lookup, and record updates
 import requests
 import json
 import logging
+import time
 from typing import Optional, Dict, List
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
