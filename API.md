@@ -5,8 +5,8 @@ Complete API reference for the Dynamic IPv6/IPv4 DDNS Service.
 ## Base URL
 
 ```
-https://ipv6.xerolux.net
-https://ipv4.xerolux.net
+https://ipv6.example.com
+https://ipv4.example.com
 ```
 
 ## Authentication
@@ -108,22 +108,22 @@ hostname=unifi-device
 
 **Update IPv6 only (auto-detect):**
 ```bash
-curl "https://ipv6.xerolux.net/api/update?ipv6prefix=auto&token=abc123"
+curl "https://ipv6.example.com/api/update?ipv6prefix=auto&token=abc123"
 ```
 
 **Update IPv4 only (explicit):**
 ```bash
-curl "https://ipv4.xerolux.net/api/update?ipv4=192.0.2.1&token=abc123"
+curl "https://ipv4.example.com/api/update?ipv4=192.0.2.1&token=abc123"
 ```
 
 **Update both IPv6 and IPv4:**
 ```bash
-curl "https://ipv6.xerolux.net/api/update?ipv6prefix=auto&ipv4=auto&token=abc123"
+curl "https://ipv6.example.com/api/update?ipv6prefix=auto&ipv4=auto&token=abc123"
 ```
 
 **Update with specific addresses:**
 ```bash
-curl -X POST https://ipv6.xerolux.net/api/update \
+curl -X POST https://ipv6.example.com/api/update \
   -d "token=abc123&ipv6prefix=2001:db8::1&ipv4=192.0.2.1&hostname=my-router"
 ```
 
@@ -151,7 +151,7 @@ GET /api/status
   "ipv6": {
     "value": "2001:db8::1",
     "type": "AAAA",
-    "domain": "ipv6.xerolux.net",
+    "domain": "ipv6.example.com",
     "hostname": "unifi-device",
     "updated": "2026-06-02T23:30:45.123456",
     "updated_by": "UniFi-Device-Name"
@@ -159,7 +159,7 @@ GET /api/status
   "ipv4": {
     "value": "192.0.2.1",
     "type": "A",
-    "domain": "ipv4.xerolux.net",
+    "domain": "ipv4.example.com",
     "hostname": "unifi-device",
     "updated": "2026-06-02T23:30:45.123456",
     "updated_by": "UniFi-Device-Name"
@@ -174,7 +174,7 @@ GET /api/status
 
 **Example:**
 ```bash
-curl "https://ipv6.xerolux.net/api/status?token=abc123"
+curl "https://ipv6.example.com/api/status?token=abc123"
 ```
 
 ---
@@ -211,17 +211,17 @@ In UniFi, configure custom DDNS with:
 
 **Server URL (IPv6):**
 ```
-https://ipv6.xerolux.net/api/update?ipv6prefix=auto&token=YOUR_TOKEN
+https://ipv6.example.com/api/update?ipv6prefix=auto&token=YOUR_TOKEN
 ```
 
 **Server URL (IPv4):**
 ```
-https://ipv4.xerolux.net/api/update?ipv4=auto&token=YOUR_TOKEN
+https://ipv4.example.com/api/update?ipv4=auto&token=YOUR_TOKEN
 ```
 
 **Server URL (Both):**
 ```
-https://ipv6.xerolux.net/api/update?ipv6prefix=auto&ipv4=auto&token=YOUR_TOKEN
+https://ipv6.example.com/api/update?ipv6prefix=auto&ipv4=auto&token=YOUR_TOKEN
 ```
 
 ### Manual Update via cron
@@ -229,7 +229,7 @@ https://ipv6.xerolux.net/api/update?ipv6prefix=auto&ipv4=auto&token=YOUR_TOKEN
 Update every 5 minutes:
 
 ```bash
-*/5 * * * * curl -s "https://ipv6.xerolux.net/api/update?ipv6prefix=auto&ipv4=auto&token=YOUR_TOKEN" >> /var/log/ddns_update.log 2>&1
+*/5 * * * * curl -s "https://ipv6.example.com/api/update?ipv6prefix=auto&ipv4=auto&token=YOUR_TOKEN" >> /var/log/ddns_update.log 2>&1
 ```
 
 ### Bash Script
@@ -241,7 +241,7 @@ TOKEN="your-secret-token"
 IPV6=$(ip -6 addr show | grep 'inet6 ' | grep -v '::1' | grep -v 'fe80:' | awk '{print $2}' | cut -d'/' -f1 | head -1)
 IPV4=$(curl -s https://api.ipify.org)
 
-curl -s "https://ipv6.xerolux.net/api/update?token=$TOKEN&ipv6prefix=$IPV6&ipv4=$IPV4"
+curl -s "https://ipv6.example.com/api/update?token=$TOKEN&ipv6prefix=$IPV6&ipv4=$IPV4"
 ```
 
 ### Python Script
@@ -251,7 +251,7 @@ import requests
 import socket
 
 TOKEN = "your-secret-token"
-BASE_URL = "https://ipv6.xerolux.net/api"
+BASE_URL = "https://ipv6.example.com/api"
 
 def get_ipv4():
     try:
@@ -285,7 +285,7 @@ if __name__ == "__main__":
 
 ```bash
 curl -H "Authorization: Bearer YOUR_TOKEN" \
-  "https://ipv6.xerolux.net/api/update?ipv6prefix=auto&ipv4=auto"
+  "https://ipv6.example.com/api/update?ipv6prefix=auto&ipv4=auto"
 ```
 
 ### Monitoring Service Health
@@ -293,7 +293,7 @@ curl -H "Authorization: Bearer YOUR_TOKEN" \
 ```bash
 # Check health regularly
 while true; do
-  STATUS=$(curl -s https://ipv6.xerolux.net/api/health | jq -r '.status')
+  STATUS=$(curl -s https://ipv6.example.com/api/health | jq -r '.status')
   if [ "$STATUS" != "healthy" ]; then
     echo "Service is $STATUS" | mail -s "DDNS Service Alert" admin@example.com
   fi

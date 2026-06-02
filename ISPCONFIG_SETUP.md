@@ -36,7 +36,7 @@ The service automatically updates DNS records in ISPConfig when receiving IP upd
 
 ```bash
 # Test with curl
-curl -k -d "username=admin&password=your_password&client_id=0&name=xerolux.net" \
+curl -k -d "username=admin&password=your_password&client_id=0&name=example.com" \
   https://your-ispconfig-ip:8080/api/dnszone/get_id
 ```
 
@@ -57,8 +57,8 @@ Edit `/etc/dynipv6/config.json`:
   "ispconfig_client_id": "0",
   "ispconfig_verify_ssl": false,
   
-  "ipv6_domain": "ipv6.xerolux.net",
-  "ipv4_domain": "ipv4.xerolux.net",
+  "ipv6_domain": "ipv6.example.com",
+  "ipv4_domain": "ipv4.example.com",
   
   "auth_tokens": {
     "your-secret-token": "UniFi-Device"
@@ -84,15 +84,15 @@ In ISPConfig:
 2. Click **New Zone**
 3. Create two zones:
 
-### Zone 1: ipv6.xerolux.net
+### Zone 1: ipv6.example.com
 ```
-Zone name: ipv6.xerolux.net
+Zone name: ipv6.example.com
 Master server: (select your DNS server)
 ```
 
-### Zone 2: ipv4.xerolux.net
+### Zone 2: ipv4.example.com
 ```
-Zone name: ipv4.xerolux.net
+Zone name: ipv4.example.com
 Master server: (select your DNS server)
 ```
 
@@ -101,7 +101,7 @@ Master server: (select your DNS server)
 ### Using the API Test Endpoint
 
 ```bash
-curl -k "https://ipv6.xerolux.net/api/ispconfig-test?token=your-secret-token"
+curl -k "https://ipv6.example.com/api/ispconfig-test?token=your-secret-token"
 ```
 
 **Success Response:**
@@ -142,16 +142,16 @@ tail -f /var/log/dynipv6/dynipv6.log | grep ISPConfig
 
 Expected output:
 ```
-2026-06-02 23:45:30 - dynipv6 - INFO - ISPConfig: Updated ipv6.xerolux.net (AAAA) = 2a00:6020:1000:44::29f5
-2026-06-02 23:45:30 - dynipv6 - INFO - ISPConfig: Updated ipv4.xerolux.net (A) = 100.86.66.72
+2026-06-02 23:45:30 - dynipv6 - INFO - ISPConfig: Updated ipv6.example.com (AAAA) = 2a00:6020:1000:44::29f5
+2026-06-02 23:45:30 - dynipv6 - INFO - ISPConfig: Updated ipv4.example.com (A) = 100.86.66.72
 ```
 
 ### Check ISPConfig
 
 1. Go to **DNS** → **Zones**
-2. Click on **ipv6.xerolux.net**
+2. Click on **ipv6.example.com**
 3. Should see new **AAAA** record for your IPv6 address
-4. Repeat for ipv4.xerolux.net with **A** record
+4. Repeat for ipv4.example.com with **A** record
 
 ## How It Works
 
@@ -194,7 +194,7 @@ Expected output:
 **1. Get Zone ID:**
 ```
 POST /api/dnszone/get_id
-Data: name=xerolux.net
+Data: name=example.com
 Returns: {"id": "123"}
 ```
 
@@ -202,7 +202,7 @@ Returns: {"id": "123"}
 ```
 POST /api/dnsrecord/get
 Data: id=123
-Returns: [{"id": "456", "name": "ipv6.xerolux.net", "type": "AAAA", ...}]
+Returns: [{"id": "456", "name": "ipv6.example.com", "type": "AAAA", ...}]
 ```
 
 **3. Update Record (if exists):**
@@ -221,7 +221,7 @@ Data: {
 POST /api/dnsrecord/add
 Data: {
   "zone": "123",
-  "name": "ipv6.xerolux.net",
+  "name": "ipv6.example.com",
   "type": "AAAA",
   "data": "2a00:6020:1000:44::29f5",
   "ttl": 3600,
@@ -256,9 +256,9 @@ cat /etc/dynipv6/config.json | grep ispconfig
 **Solution: Create the DNS zone**
 1. ISPConfig → DNS → Zones
 2. Click "New Zone"
-3. Add zone: `xerolux.net` or `ipv6.xerolux.net`
+3. Add zone: `example.com` or `ipv6.example.com`
 
-Note: For `ipv6.xerolux.net`, you may want to create it as a subdomain under `xerolux.net` or as a separate zone.
+Note: For `ipv6.example.com`, you may want to create it as a subdomain under `example.com` or as a separate zone.
 
 ### "Permission denied"
 
@@ -279,7 +279,7 @@ journalctl -u dynipv6 | tail -20
 ```
 
 **Common issues:**
-- Record name mismatch (use FQDN: `ipv6.xerolux.net`, not `ipv6`)
+- Record name mismatch (use FQDN: `ipv6.example.com`, not `ipv6`)
 - Zone not found
 - API credentials wrong
 - Firewall blocking port 8080
@@ -293,8 +293,8 @@ After record is created/updated, it may take:
 
 Check with:
 ```bash
-dig ipv6.xerolux.net AAAA
-dig ipv4.xerolux.net A
+dig ipv6.example.com AAAA
+dig ipv4.example.com A
 ```
 
 ## ISPConfigAPI Class Reference
@@ -314,22 +314,22 @@ api = ISPConfigAPI(
 )
 
 # Get zone ID
-zone_id = api.get_dns_zone_id("xerolux.net")
+zone_id = api.get_dns_zone_id("example.com")
 
 # Get all records for zone
 records = api.get_dns_records(zone_id)
 
 # Get specific record ID
-record_id = api.get_dns_record_id(zone_id, "ipv6.xerolux.net", "AAAA")
+record_id = api.get_dns_record_id(zone_id, "ipv6.example.com", "AAAA")
 
 # Update existing record
 api.update_dns_record(record_id, "2001:db8::1", ttl=3600)
 
 # Create new record
-api.create_dns_record(zone_id, "ipv6.xerolux.net", "AAAA", "2001:db8::1")
+api.create_dns_record(zone_id, "ipv6.example.com", "AAAA", "2001:db8::1")
 
 # Update or create (automatic)
-api.update_or_create_record("ipv6.xerolux.net", "AAAA", "2001:db8::1")
+api.update_or_create_record("ipv6.example.com", "AAAA", "2001:db8::1")
 
 # Test connection
 api.test_connection()
@@ -346,17 +346,17 @@ Not directly supported, but you can:
 
 ### Using Subdomain Zones
 
-If `ipv6.xerolux.net` is a subdomain zone:
+If `ipv6.example.com` is a subdomain zone:
 
 **In ISPConfig:**
-- Zone: `ipv6.xerolux.net`
+- Zone: `ipv6.example.com`
 - Record name: `@` (for zone root)
-- Or: `mail.ipv6.xerolux.net` (for subdomain)
+- Or: `mail.ipv6.example.com` (for subdomain)
 
 **In config.json:**
 ```json
 {
-  "ipv6_domain": "ipv6.xerolux.net",
+  "ipv6_domain": "ipv6.example.com",
   // Service will use this as-is
 }
 ```
@@ -387,7 +387,7 @@ success = api.update_or_create_record(domain, record_type, value, ttl=300)  # 5 
 #!/bin/bash
 
 TOKEN="your-secret-token"
-SERVICE="https://ipv6.xerolux.net"
+SERVICE="https://ipv6.example.com"
 
 echo "1. Test health..."
 curl -s $SERVICE/api/health
@@ -402,8 +402,8 @@ echo -e "\n4. Check status..."
 curl -s "$SERVICE/api/status?token=$TOKEN"
 
 echo -e "\n5. Verify DNS..."
-dig ipv6.xerolux.net AAAA
-dig ipv4.xerolux.net A
+dig ipv6.example.com AAAA
+dig ipv4.example.com A
 ```
 
 ## Support

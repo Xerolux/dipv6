@@ -18,13 +18,13 @@ This guide covers deploying the Dynamic IPv6/IPv4 DDNS Service on your ISPConfig
 - Ubuntu 20.04+ or Debian 10+
 - Root access
 - ISPConfig with admin privileges
-- Domain names: `ipv6.xerolux.net` and `ipv4.xerolux.net`
+- Domain names: `ipv6.example.com` and `ipv4.example.com`
 
 ### Step 1: Download and Install
 
 ```bash
 # Clone repository
-git clone https://github.com/xerolux/dipv6.git
+git clone https://github.com/your-org/dipv6.git
 cd dipv6
 
 # Run installer
@@ -49,8 +49,8 @@ Update these fields:
   "ispconfig_url": "https://your-ispconfig-ip:8080",
   "ispconfig_username": "admin",
   "ispconfig_password": "your-password",
-  "ipv6_domain": "ipv6.xerolux.net",
-  "ipv4_domain": "ipv4.xerolux.net",
+  "ipv6_domain": "ipv6.example.com",
+  "ipv4_domain": "ipv4.example.com",
   "auth_tokens": {
     "generate-strong-token-here": "UniFi-Device"
   }
@@ -72,10 +72,10 @@ Using Let's Encrypt:
 sudo apt-get install certbot python3-certbot-nginx
 
 # Get certificate for both domains
-sudo certbot certonly --nginx -d ipv6.xerolux.net -d ipv4.xerolux.net
+sudo certbot certonly --nginx -d ipv6.example.com -d ipv4.example.com
 
 # Verify paths in config.json
-sudo ls -la /etc/letsencrypt/live/ipv6.xerolux.net/
+sudo ls -la /etc/letsencrypt/live/ipv6.example.com/
 ```
 
 ### Step 4: Configure Reverse Proxy
@@ -151,7 +151,7 @@ nano config.json
 
 ### Step 2: Update Domains (Optional)
 
-In `docker-compose.yml`, replace `ipv6.xerolux.net` and `ipv4.xerolux.net` with your domains.
+In `docker-compose.yml`, replace `ipv6.example.com` and `ipv4.example.com` with your domains.
 
 ### Step 3: Start Services
 
@@ -173,7 +173,7 @@ docker-compose logs -f dynipv6
 curl -k http://localhost:5000/api/health
 
 # Check through Nginx
-curl https://ipv6.xerolux.net/api/health
+curl https://ipv6.example.com/api/health
 ```
 
 ### Docker Useful Commands
@@ -199,20 +199,20 @@ docker-compose exec dynipv6 ls /var/lib/dynipv6
 1. Login to ISPConfig
 2. Go to **DNS** → **Zones**
 3. Ensure zones exist for:
-   - `ipv6.xerolux.net`
-   - `ipv4.xerolux.net`
+   - `ipv6.example.com`
+   - `ipv4.example.com`
 
 ### DNS Records Setup
 
 For each domain, create A/AAAA records:
 
-**For ipv6.xerolux.net:**
+**For ipv6.example.com:**
 - Type: AAAA
 - Name: (leave blank for root)
 - Data: (will be updated by service)
 - TTL: 3600
 
-**For ipv4.xerolux.net:**
+**For ipv4.example.com:**
 - Type: A
 - Name: (leave blank for root)
 - Data: (will be updated by service)
@@ -233,13 +233,13 @@ The service needs ISPConfig API access. Make sure:
 ```bash
 # Using certbot with Nginx
 sudo certbot certonly --nginx \
-  -d ipv6.xerolux.net \
-  -d ipv4.xerolux.net
+  -d ipv6.example.com \
+  -d ipv4.example.com
 
 # Or using standalone
 sudo certbot certonly --standalone \
-  -d ipv6.xerolux.net \
-  -d ipv4.xerolux.net
+  -d ipv6.example.com \
+  -d ipv4.example.com
 ```
 
 ### Auto-Renewal
@@ -255,8 +255,8 @@ sudo systemctl status certbot.timer
 
 If not using Let's Encrypt:
 
-1. Place certificate at: `/etc/letsencrypt/live/ipv6.xerolux.net/fullchain.pem`
-2. Place key at: `/etc/letsencrypt/live/ipv6.xerolux.net/privkey.pem`
+1. Place certificate at: `/etc/letsencrypt/live/ipv6.example.com/fullchain.pem`
+2. Place key at: `/etc/letsencrypt/live/ipv6.example.com/privkey.pem`
 3. Update paths in config.json if different
 
 ## Reverse Proxy Configuration
@@ -450,10 +450,10 @@ tail -f /var/log/apache2/error.log
 
 ```bash
 # Check certificate
-openssl x509 -in /etc/letsencrypt/live/ipv6.xerolux.net/fullchain.pem -text
+openssl x509 -in /etc/letsencrypt/live/ipv6.example.com/fullchain.pem -text
 
 # Test SSL
-openssl s_client -connect ipv6.xerolux.net:443
+openssl s_client -connect ipv6.example.com:443
 
 # Check renewal
 sudo certbot renew --dry-run

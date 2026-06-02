@@ -40,7 +40,7 @@ Create `/etc/nginx/sites-available/webui`:
 server {
     listen 80;
     listen [::]:80;
-    server_name ip.xerolux.net;
+    server_name ip.example.com;
     return 301 https://$server_name$request_uri;
 }
 
@@ -48,10 +48,10 @@ server {
 server {
     listen 443 ssl http2;
     listen [::]:443 ssl http2;
-    server_name ip.xerolux.net;
+    server_name ip.example.com;
 
-    ssl_certificate /etc/letsencrypt/live/ip.xerolux.net/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/ip.xerolux.net/privkey.pem;
+    ssl_certificate /etc/letsencrypt/live/ip.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/ip.example.com/privkey.pem;
     ssl_protocols TLSv1.2 TLSv1.3;
     ssl_ciphers HIGH:!aNULL:!MD5;
 
@@ -86,14 +86,14 @@ sudo systemctl reload nginx
 ### Step 4: Get SSL Certificate
 
 ```bash
-sudo certbot certonly -d ip.xerolux.net
+sudo certbot certonly -d ip.example.com
 ```
 
 ### Step 5: Access Web-UI
 
 Open your browser and go to:
 ```
-https://ip.xerolux.net
+https://ip.example.com
 ```
 
 **Default Login:**
@@ -117,7 +117,7 @@ Shows overview with:
 
 **Add Domain:**
 1. Click "Add New Domain"
-2. Enter domain name (e.g., `ipv6.xerolux.net`)
+2. Enter domain name (e.g., `ipv6.example.com`)
 3. Toggle IPv4/IPv6 as needed
 4. Click "Add Domain"
 
@@ -148,7 +148,7 @@ Shows overview with:
 Go to UniFi Settings → Internet → Dynamic DNS → Custom Service:
 
 ```
-Server: https://ip.xerolux.net/api/update?ipv6prefix=auto&ipv4=auto&token=YOUR_TOKEN
+Server: https://ip.example.com/api/update?ipv6prefix=auto&ipv4=auto&token=YOUR_TOKEN
 ```
 
 ### Settings
@@ -268,7 +268,7 @@ sudo systemctl reload nginx
 
 **Check certificate validity:**
 ```bash
-openssl x509 -in /etc/letsencrypt/live/ip.xerolux.net/fullchain.pem -noout -dates
+openssl x509 -in /etc/letsencrypt/live/ip.example.com/fullchain.pem -noout -dates
 ```
 
 ## Architecture
@@ -276,7 +276,7 @@ openssl x509 -in /etc/letsencrypt/live/ip.xerolux.net/fullchain.pem -noout -date
 ```
 ┌──────────────────────────────────────┐
 │   Your Computer / Smartphone         │
-│   Browser: https://ip.xerolux.net   │
+│   Browser: https://ip.example.com   │
 └──────────────────┬──────────────────┘
                    │ HTTPS
                    ▼
@@ -321,19 +321,19 @@ The web-UI uses the same API as UniFi clients:
 ### Update DNS
 
 ```bash
-curl "https://ip.xerolux.net/api/update?ipv6prefix=auto&ipv4=auto&token=TOKEN"
+curl "https://ip.example.com/api/update?ipv6prefix=auto&ipv4=auto&token=TOKEN"
 ```
 
 ### Check Status
 
 ```bash
-curl "https://ip.xerolux.net/api/status?token=TOKEN"
+curl "https://ip.example.com/api/status?token=TOKEN"
 ```
 
 ### Health Check
 
 ```bash
-curl "https://ip.xerolux.net/api/health"
+curl "https://ip.example.com/api/health"
 ```
 
 ## Logs
@@ -368,15 +368,15 @@ tail -f /var/log/nginx/access.log
 
 ### Single Domain (both IPv4 and IPv6)
 
-1. Domain: `dns.xerolux.net`
+1. Domain: `dns.example.com`
 2. Enable both IPv4 and IPv6
 3. Create token: "DNS Device"
-4. Use in UniFi: `https://ip.xerolux.net/api/update?ipv6prefix=auto&ipv4=auto&token=TOKEN`
+4. Use in UniFi: `https://ip.example.com/api/update?ipv6prefix=auto&ipv4=auto&token=TOKEN`
 
 ### Separate Domains (IPv4 and IPv6)
 
-1. Domain 1: `ipv4.xerolux.net` - IPv4 only
-2. Domain 2: `ipv6.xerolux.net` - IPv6 only
+1. Domain 1: `ipv4.example.com` - IPv4 only
+2. Domain 2: `ipv6.example.com` - IPv6 only
 3. Create separate tokens for each
 4. Use in UniFi with separate DDNS configs
 
@@ -391,4 +391,4 @@ tail -f /var/log/nginx/access.log
 For issues or questions:
 1. Check logs: `journalctl -u dynipv6-webui -f`
 2. Review documentation: `README.md`, `ISPCONFIG_SETUP.md`
-3. Test connectivity: `curl https://ip.xerolux.net/api/health`
+3. Test connectivity: `curl https://ip.example.com/api/health`

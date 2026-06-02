@@ -29,30 +29,30 @@ Fill in the following fields:
 | Field | Value |
 |-------|-------|
 | **Service** | Custom |
-| **Hostname** | `ipv6.xerolux.net` (for IPv6) or `ipv4.xerolux.net` (for IPv4) |
+| **Hostname** | `ipv6.example.com` (for IPv6) or `ipv4.example.com` (for IPv4) |
 | **Username** | `ignored` (can be any value, token goes in URL) |
 | **Password** | `ignored` (can be any value, token goes in URL) |
-| **Server** | `https://ipv6.xerolux.net/api/update?ipv6prefix=auto&token=YOUR_TOKEN_HERE` |
+| **Server** | `https://ipv6.example.com/api/update?ipv6prefix=auto&token=YOUR_TOKEN_HERE` |
 
-### 3. IPv6 Setup (ipv6.xerolux.net)
+### 3. IPv6 Setup (ipv6.example.com)
 
 **Example Server URL for IPv6:**
 ```
-https://ipv6.xerolux.net/api/update?ipv6prefix=auto&token=your-secret-token
+https://ipv6.example.com/api/update?ipv6prefix=auto&token=your-secret-token
 ```
 
-### 4. IPv4 Setup (ipv4.xerolux.net)
+### 4. IPv4 Setup (ipv4.example.com)
 
 **Example Server URL for IPv4:**
 ```
-https://ipv4.xerolux.net/api/update?ipv4=auto&token=your-secret-token
+https://ipv4.example.com/api/update?ipv4=auto&token=your-secret-token
 ```
 
 ### 5. Both IPv6 and IPv4 (Single Configuration)
 
 **If using single domain for both:**
 ```
-https://ipv6.xerolux.net/api/update?ipv6prefix=auto&ipv4=auto&token=your-secret-token
+https://ipv6.example.com/api/update?ipv6prefix=auto&ipv4=auto&token=your-secret-token
 ```
 
 ## API Endpoints
@@ -71,17 +71,17 @@ https://ipv6.xerolux.net/api/update?ipv6prefix=auto&ipv4=auto&token=your-secret-
 
 Update IPv6 automatically:
 ```
-https://ipv6.xerolux.net/api/update?ipv6prefix=auto&token=TOKEN
+https://ipv6.example.com/api/update?ipv6prefix=auto&token=TOKEN
 ```
 
 Update both IPv4 and IPv6:
 ```
-https://ipv6.xerolux.net/api/update?ipv6prefix=auto&ipv4=auto&token=TOKEN
+https://ipv6.example.com/api/update?ipv6prefix=auto&ipv4=auto&token=TOKEN
 ```
 
 Explicit IP:
 ```
-https://ipv6.xerolux.net/api/update?ipv6prefix=2001:db8::1&token=TOKEN
+https://ipv6.example.com/api/update?ipv6prefix=2001:db8::1&token=TOKEN
 ```
 
 ### Check Current Status
@@ -89,7 +89,7 @@ https://ipv6.xerolux.net/api/update?ipv6prefix=2001:db8::1&token=TOKEN
 **Endpoint:** `GET /api/status`
 
 ```
-https://ipv6.xerolux.net/api/status?token=TOKEN
+https://ipv6.example.com/api/status?token=TOKEN
 ```
 
 **Response:**
@@ -99,13 +99,13 @@ https://ipv6.xerolux.net/api/status?token=TOKEN
   "ipv6": {
     "value": "2001:db8::1",
     "type": "AAAA",
-    "domain": "ipv6.xerolux.net",
+    "domain": "ipv6.example.com",
     "updated": "2026-06-02T23:30:45.123456"
   },
   "ipv4": {
     "value": "192.0.2.1",
     "type": "A",
-    "domain": "ipv4.xerolux.net",
+    "domain": "ipv4.example.com",
     "updated": "2026-06-02T23:30:45.123456"
   }
 }
@@ -118,7 +118,7 @@ https://ipv6.xerolux.net/api/status?token=TOKEN
 No authentication required. Used for uptime monitoring.
 
 ```
-https://ipv6.xerolux.net/api/health
+https://ipv6.example.com/api/health
 ```
 
 ## Token Management
@@ -155,7 +155,7 @@ systemctl restart dynipv6
 2. Click the test icon next to your DDNS entry
 3. Check `/var/log/dynipv6/dynipv6.log` for update confirmation:
    ```
-   2026-06-02 23:30:45 - dynipv6 - INFO - Updated ipv6.xerolux.net (AAAA): 2001:db8::1
+   2026-06-02 23:30:45 - dynipv6 - INFO - Updated ipv6.example.com (AAAA): 2001:db8::1
    ```
 
 ## Troubleshooting
@@ -171,7 +171,7 @@ journalctl -u dynipv6 -n 50 -f
 
 ```bash
 # Check certificate validity
-openssl x509 -in /etc/letsencrypt/live/ipv6.xerolux.net/fullchain.pem -text -noout
+openssl x509 -in /etc/letsencrypt/live/ipv6.example.com/fullchain.pem -text -noout
 ```
 
 ### DNS Not Updating
@@ -188,7 +188,7 @@ openssl x509 -in /etc/letsencrypt/live/ipv6.xerolux.net/fullchain.pem -text -noo
 curl -k https://localhost/api/health
 
 # Test from another machine
-curl -k https://ipv6.xerolux.net/api/health
+curl -k https://ipv6.example.com/api/health
 ```
 
 ## Advanced Configuration
@@ -221,10 +221,10 @@ For ISPConfig API documentation, see: https://www.ispconfig.org/documentation/
 
 See the screenshot provided - it shows:
 - Service: **Custom**
-- Hostname: **ipv6.xerolux.net**
+- Hostname: **ipv6.example.com**
 - Username: `ignored`
 - Password: `ignored`  
-- Server: `https://ipv6.xerolux.net/api/update?ipv6prefix=auto&token=YOUR_TOKEN`
+- Server: `https://ipv6.example.com/api/update?ipv6prefix=auto&token=YOUR_TOKEN`
 
 ## Support
 

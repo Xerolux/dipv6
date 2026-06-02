@@ -58,9 +58,9 @@ Get certificates for all three domains:
 
 ```bash
 sudo certbot certonly --standalone \
-  -d ipv6.xerolux.net \
-  -d ipv4.xerolux.net \
-  -d ip.xerolux.net
+  -d ipv6.example.com \
+  -d ipv4.example.com \
+  -d ip.example.com
 ```
 
 Verify:
@@ -74,8 +74,8 @@ Create `/opt/dipv6/config/config.json`:
 
 ```json
 {
-  "ipv6_domain": "ipv6.xerolux.net",
-  "ipv4_domain": "ipv4.xerolux.net",
+  "ipv6_domain": "ipv6.example.com",
+  "ipv4_domain": "ipv4.example.com",
   "ispconfig_url": "https://YOUR_ISPCONFIG_IP:8080",
   "ispconfig_username": "admin",
   "ispconfig_password": "ENCRYPTED_BY_SERVICE",
@@ -130,10 +130,10 @@ ddns-nginx        nginx     running     80->80/tcp, 443->443/tcp
 
 ```bash
 # Check API health
-curl https://ipv6.xerolux.net/api/health
+curl https://ipv6.example.com/api/health
 
 # Check Web-UI
-curl https://ip.xerolux.net/
+curl https://ip.example.com/
 
 # View logs
 docker-compose logs -f ddns-api
@@ -257,13 +257,13 @@ docker-compose logs --tail 50
 
 ```bash
 # API health
-curl https://ipv6.xerolux.net/api/health
+curl https://ipv6.example.com/api/health
 
 # Web-UI
-curl https://ip.xerolux.net/ -u admin:password
+curl https://ip.example.com/ -u admin:password
 
 # ISPConfig connectivity
-curl -X GET "https://ipv6.xerolux.net/api/ispconfig-test?token=YOUR_TOKEN"
+curl -X GET "https://ipv6.example.com/api/ispconfig-test?token=YOUR_TOKEN"
 ```
 
 ### Disk Usage
@@ -309,10 +309,10 @@ cat /opt/dipv6/config/config.json | grep ispconfig
 
 ```bash
 # Check certificates
-sudo openssl x509 -in /etc/letsencrypt/live/ipv6.xerolux.net/fullchain.pem -text -noout
+sudo openssl x509 -in /etc/letsencrypt/live/ipv6.example.com/fullchain.pem -text -noout
 
 # Test SSL
-openssl s_client -connect ipv6.xerolux.net:443
+openssl s_client -connect ipv6.example.com:443
 
 # Reload Nginx
 docker-compose exec nginx nginx -s reload
@@ -366,9 +366,9 @@ Configuration handles unlimited domains:
 ```json
 {
   "domains": {
-    "ipv6.xerolux.net": {"ipv4_enabled": false, "ipv6_enabled": true},
-    "ipv4.xerolux.net": {"ipv4_enabled": true, "ipv6_enabled": false},
-    "dns.xerolux.net": {"ipv4_enabled": true, "ipv6_enabled": true}
+    "ipv6.example.com": {"ipv4_enabled": false, "ipv6_enabled": true},
+    "ipv4.example.com": {"ipv4_enabled": true, "ipv6_enabled": false},
+    "dns.example.com": {"ipv4_enabled": true, "ipv6_enabled": true}
   }
 }
 ```
@@ -468,8 +468,8 @@ docker-compose logs -f ddns-nginx
 
 ### Health check endpoints
 
-- API: `https://ipv6.xerolux.net/api/health`
-- Web-UI: `https://ip.xerolux.net/login`
+- API: `https://ipv6.example.com/api/health`
+- Web-UI: `https://ip.example.com/login`
 - Nginx: `http://localhost/health`
 
 ## Emergency Procedures
@@ -530,6 +530,6 @@ docker-compose up -d
 
 For issues:
 1. Check logs: `docker-compose logs -f`
-2. Verify connectivity: `curl https://ipv6.xerolux.net/api/health`
+2. Verify connectivity: `curl https://ipv6.example.com/api/health`
 3. Test ISPConfig: Web-UI → Settings → Test ISPConfig
 4. Review documentation in ISPCONFIG_SETUP.md and WEBUI_SETUP.md
