@@ -470,6 +470,51 @@ def api_change_password():
     return jsonify({'status': 'success', 'message': 'Password changed'})
 
 
+@app.route('/api/certificate-status/<domain_name>', methods=['GET'])
+@login_required
+def api_certificate_status(domain_name):
+    """Check if SSL certificate exists for domain"""
+    cert_path = Path("/etc/letsencrypt/live") / domain_name / "fullchain.pem"
+
+    if cert_path.exists():
+        try:
+            import subprocess
+            # Get certificate expiry
+            result = subprocess.run(
+                ['openssl', 'x509', '-in', str(cert_path), '-noout', '-enddate'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            expiry = result.stdout.strip().replace('notAfter=', '') if result.returncode == 0 else 'Unknown'
+
+            return jsonify({
+                'status': 'success',
+                'has_certificate': True,
+                'domain': domain_name,
+                'cert_path': str(cert_path),
+                'expiry': expiry,
+                'protocol': 'HTTPS'
+            })
+        except Exception as e:
+            logger.warning(f"Error reading cert for {domain_name}: {e}")
+            return jsonify({
+                'status': 'success',
+                'has_certificate': True,
+                'domain': domain_name,
+                'protocol': 'HTTPS',
+                'note': 'Certificate exists but unable to read expiry'
+            })
+    else:
+        return jsonify({
+            'status': 'success',
+            'has_certificate': False,
+            'domain': domain_name,
+            'protocol': 'HTTP',
+            'message': 'No certificate found. Domain accessible via HTTP only. Create certificate with: sudo certbot certonly -d ' + domain_name
+        })
+
+
 @app.route('/api/status')
 @login_required
 def api_status():

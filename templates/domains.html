@@ -94,6 +94,11 @@
                                                 </span>
                                             {% endif %}
                                         </div>
+                                        <div id="cert-status-{{ loop.index }}" class="mt-2">
+                                            <small id="cert-badge-{{ loop.index }}" class="text-muted">
+                                                <i class="fas fa-spinner fa-spin"></i> Checking...
+                                            </small>
+                                        </div>
                                     </td>
                                     <td>
                                         {% if domain.last_update %}
@@ -262,6 +267,37 @@
 {% block extra_js %}
 <script>
     let currentDomain = null;
+
+    // Check certificate status for each domain on page load
+    async function checkCertificateStatus() {
+        const domains = document.querySelectorAll('[id^="cert-status-"]');
+        domains.forEach(async (elem, index) => {
+            const domainName = document.querySelectorAll('tbody tr')[index]?.querySelector('td')?.textContent?.trim();
+            if (!domainName) return;
+
+            try {
+                const response = await fetch(`/api/certificate-status/${domainName}`);
+                const data = await response.json();
+                const badge = document.getElementById(`cert-badge-${index + 1}`);
+
+                if (data.has_certificate) {
+                    badge.innerHTML = `<span class="badge bg-success"><i class="fas fa-lock"></i> HTTPS</span>`;
+                    if (data.expiry) {
+                        badge.innerHTML += `<br><small class="text-success">${data.expiry}</small>`;
+                    }
+                } else {
+                    badge.innerHTML = `<span class="badge bg-warning"><i class="fas fa-exclamation-triangle"></i> HTTP Only</span>`;
+                    badge.innerHTML += `<br><small class="text-warning">No cert found</small>`;
+                }
+            } catch (error) {
+                document.getElementById(`cert-badge-${index + 1}`).innerHTML =
+                    `<span class="badge bg-secondary">Unknown</span>`;
+            }
+        });
+    }
+
+    // Run on page load
+    document.addEventListener('DOMContentLoaded', checkCertificateStatus);
 
     async function addDomain() {
         const domainName = document.getElementById('domainName').value.trim();
