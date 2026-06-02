@@ -301,6 +301,59 @@ def api_update_domain(domain_name):
     return jsonify({'status': 'success', 'message': f'Domain {domain_name} updated'})
 
 
+@app.route('/api/domain/set-ip/<domain_name>', methods=['POST'])
+@login_required
+def api_set_ip_manual(domain_name):
+    """Manually set IPv4/IPv6 addresses"""
+    import ipaddress
+    data = request.get_json()
+    ipv4 = data.get('ipv4')
+    ipv6 = data.get('ipv6')
+
+    # Validate IPv4 if provided
+    if ipv4:
+        try:
+            ipaddress.IPv4Address(ipv4)
+        except ipaddress.AddressValueError:
+            return jsonify({'error': f'Invalid IPv4 address: {ipv4}'}), 400
+
+    # Validate IPv6 if provided
+    if ipv6:
+        try:
+            ipaddress.IPv6Address(ipv6)
+        except ipaddress.AddressValueError:
+            return jsonify({'error': f'Invalid IPv6 address: {ipv6}'}), 400
+
+    # Save IPv4
+    if ipv4:
+        ipv4_file = DATA_DIR / f"{domain_name}_A.json"
+        with open(ipv4_file, 'w') as f:
+            json.dump({
+                'value': ipv4,
+                'updated': datetime.now().isoformat(),
+                'source': 'manual'
+            }, f)
+        logger.info(f"IPv4 set manually for {domain_name}: {ipv4} by {session['username']}")
+
+    # Save IPv6
+    if ipv6:
+        ipv6_file = DATA_DIR / f"{domain_name}_AAAA.json"
+        with open(ipv6_file, 'w') as f:
+            json.dump({
+                'value': ipv6,
+                'updated': datetime.now().isoformat(),
+                'source': 'manual'
+            }, f)
+        logger.info(f"IPv6 set manually for {domain_name}: {ipv6} by {session['username']}")
+
+    return jsonify({
+        'status': 'success',
+        'message': f'IP addresses set for {domain_name}',
+        'ipv4': ipv4,
+        'ipv6': ipv6
+    })
+
+
 @app.route('/tokens')
 @login_required
 def manage_tokens():

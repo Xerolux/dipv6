@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 
-{% block title %}Tokens - IP.XEROLUX.NET{% endblock %}
+{% block title %}Tokens - IP.Admin Panel{% endblock %}
 
 {% block content %}
 
@@ -100,15 +100,15 @@
             </div>
             <div class="card-body">
                 <h6>In UniFi Network Settings:</h6>
-                <pre><code>Server: https://ip.xerolux.net/api/update?ipv6prefix=auto&ipv4=auto&token=YOUR_TOKEN_HERE</code></pre>
+                <pre><code>Server: https://ip.example.com/api/update?ipv6prefix=auto&ipv4=auto&token=YOUR_TOKEN_HERE</code></pre>
 
                 <h6 class="mt-3">Via Command Line:</h6>
-                <pre><code>curl "https://ip.xerolux.net/api/update?ipv6prefix=auto&token=YOUR_TOKEN_HERE"</code></pre>
+                <pre><code>curl "https://ip.example.com/api/update?ipv6prefix=auto&token=YOUR_TOKEN_HERE"</code></pre>
 
                 <h6 class="mt-3">Via Bash Script:</h6>
                 <pre><code>#!/bin/bash
 TOKEN="your-token-here"
-curl "https://ip.xerolux.net/api/update?ipv6prefix=auto&ipv4=auto&token=$TOKEN"</code></pre>
+curl "https://ip.example.com/api/update?ipv6prefix=auto&ipv4=auto&token=$TOKEN"</code></pre>
             </div>
         </div>
     </div>
