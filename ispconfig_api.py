@@ -222,18 +222,42 @@ class ISPConfigAPI:
             logger.error(f"Failed to update DNS record {record_id}: {result}")
             return False
 
-    def update_or_create_record(self, domain: str, record_type: str, data: str, ttl: int = 3600) -> bool:
+    def delete_dns_record(self, domain: str, record_id: str) -> bool:
+        """Delete DNS record
+
+        Args:
+            domain: Domain name (for logging)
+            record_id: DNS record ID
+
+        Returns:
+            True if successful, False otherwise
+        """
+        result = self._call_api('dnsrecord/delete', id=record_id)
+
+        if 'status' in result or result.get('status') == 'ok':
+            logger.info(f"Deleted DNS record {record_id} for {domain}")
+            return True
+        else:
+            logger.error(f"Failed to delete DNS record {record_id}: {result}")
+            return False
+
+    def update_or_create_record(self, domain: str, record_type: str, value: str, record_name: str = None, ttl: int = 3600) -> bool:
         """Update DNS record if exists, create if not
 
         Args:
-            domain: Full domain name (e.g., 'ipv6.xerolux.net')
-            record_type: Record type (A, AAAA, etc.)
-            data: Record data (IP address)
+            domain: Base domain name (e.g., 'example.com')
+            record_type: Record type (A, AAAA, TXT, etc.)
+            value: Record data (IP address, text, etc.)
+            record_name: Full record name (e.g., '_acme-challenge.example.com') or None for root
             ttl: Time to live in seconds
 
         Returns:
             True if successful, False otherwise
         """
+        # If record_name not specified, use domain as record name
+        if record_name is None:
+            record_name = domain
+
         # Get zone ID for base domain
         zone_id = self.get_dns_zone_id(domain)
         if not zone_id:
@@ -241,14 +265,14 @@ class ISPConfigAPI:
             return False
 
         # Check if record exists
-        record_id = self.get_dns_record_id(zone_id, domain, record_type)
+        record_id = self.get_dns_record_id(zone_id, record_name, record_type)
 
         if record_id:
             # Update existing record
-            return self.update_dns_record(record_id, data, ttl)
+            return self.update_dns_record(record_id, value, ttl)
         else:
             # Create new record
-            return self.create_dns_record(zone_id, domain, record_type, data, ttl)
+            return self.create_dns_record(zone_id, record_name, record_type, value, ttl)
 
     def test_connection(self) -> bool:
         """Test ISPConfig API connection

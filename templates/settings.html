@@ -59,8 +59,38 @@
         </div>
     </div>
 
-    <!-- Password Settings -->
+    <!-- Wildcard Certificate -->
     <div class="col-lg-6">
+        <div class="card">
+            <div class="card-header">
+                <i class="fas fa-certificate"></i> Wildcard SSL Certificate
+            </div>
+            <div class="card-body">
+                <div id="wildcard-status" class="mb-3">
+                    <div class="spinner-border spinner-border-sm" role="status">
+                        <span class="visually-hidden">Loading...</span>
+                    </div>
+                    <span class="ms-2">Checking wildcard status...</span>
+                </div>
+
+                <form id="wildcardForm" style="display:none;">
+                    <div class="form-group mb-3">
+                        <label for="baseDomain" class="form-label">Base Domain</label>
+                        <input type="text" class="form-control" id="baseDomain"
+                               placeholder="e.g., example.com">
+                        <small class="text-muted">
+                            Creates certificate for *.example.com and example.com
+                        </small>
+                    </div>
+
+                    <button type="button" class="btn btn-primary" onclick="createWildcard()">
+                        <i class="fas fa-certificate"></i> Create Wildcard Certificate
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+
         <div class="card">
             <div class="card-header">
                 <i class="fas fa-lock"></i> Admin Password
@@ -239,5 +269,77 @@
     function downloadConfig() {
         showNotification('Configuration export not yet implemented', 'warning');
     }
+
+    // Check wildcard certificate status on page load
+    async function checkWildcardStatus() {
+        try {
+            const response = await fetch('/api/wildcard/status');
+            const data = await response.json();
+            const statusDiv = document.getElementById('wildcard-status');
+            const form = document.getElementById('wildcardForm');
+
+            if (data.has_wildcard) {
+                statusDiv.innerHTML = `
+                    <div class="alert alert-success mb-0">
+                        <i class="fas fa-check-circle"></i> <strong>Wildcard Active</strong>
+                        <br>Domain: <code>*.${data.base_domain}</code>, <code>${data.base_domain}</code>
+                        <br>Expires: ${data.expiry || 'Unknown'}
+                    </div>
+                `;
+                form.style.display = 'none';
+            } else {
+                statusDiv.innerHTML = `
+                    <div class="alert alert-warning mb-3">
+                        <i class="fas fa-exclamation-triangle"></i> No wildcard certificate configured
+                    </div>
+                `;
+                form.style.display = 'block';
+            }
+        } catch (error) {
+            document.getElementById('wildcard-status').innerHTML =
+                `<div class="alert alert-danger">Error checking status</div>`;
+        }
+    }
+
+    async function createWildcard() {
+        const baseDomain = document.getElementById('baseDomain').value.trim();
+
+        if (!baseDomain) {
+            showNotification('Please enter a base domain', 'danger');
+            return;
+        }
+
+        const btn = event.target;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
+
+        try {
+            const response = await apiCall('/api/wildcard/create', 'POST', {
+                base_domain: baseDomain
+            });
+
+            if (response.status === 'success') {
+                showNotification(
+                    `✅ Wildcard certificate created for *.${baseDomain}!`,
+                    'success'
+                );
+                setTimeout(() => {
+                    checkWildcardStatus();
+                    document.getElementById('baseDomain').value = '';
+                }, 2000);
+            } else {
+                showNotification(`❌ Error: ${response.message}`, 'danger');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-certificate"></i> Create Wildcard Certificate';
+            }
+        } catch (error) {
+            showNotification('Error creating wildcard: ' + error, 'danger');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-certificate"></i> Create Wildcard Certificate';
+        }
+    }
+
+    // Run on page load
+    document.addEventListener('DOMContentLoaded', checkWildcardStatus);
 </script>
 {% endblock %}

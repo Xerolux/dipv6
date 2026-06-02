@@ -8,6 +8,7 @@ import os
 import json
 import hashlib
 import secrets
+import subprocess
 from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
@@ -16,6 +17,7 @@ import logging
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
+from backup_manager import BackupManager
 
 # Configuration paths
 CONFIG_DIR = Path("/etc/dynipv6")
@@ -67,7 +69,12 @@ class ConfigManager:
             "ispconfig_password": "password",
             "ispconfig_client_id": "0",
             "domains": {},
-            "auth_tokens": {}
+            "auth_tokens": {},
+            "wildcard": {
+                "base_domain": None,
+                "created": None,
+                "expiry": None
+            }
         }
 
     def save(self):
@@ -173,6 +180,213 @@ def save_admin(admin_data):
     os.chmod(ADMIN_FILE, 0o600)
 
 
+def create_backup(description: str = ""):
+    """Create automatic backup of critical files"""
+    try:
+        backup_mgr = BackupManager()
+        backed_up = []
+
+        # Backup critical configuration files
+        for file_path in [CONFIG_FILE, ADMIN_FILE]:
+            if Path(file_path).exists():
+                result = backup_mgr.backup_file(str(file_path), description)
+                if result:
+                    backed_up.append(file_path)
+                    logger.info(f"Backed up {file_path}")
+
+        return {
+            'status': 'success',
+            'files_backed_up': backed_up,
+            'backup_count': len(backed_up)
+        }
+    except Exception as e:
+        logger.error(f"Error creating backup: {e}")
+        return {
+            'status': 'error',
+            'message': str(e)
+        }
+
+
+def create_wildcard_certificate(base_domain):
+    """Create wildcard SSL certificate for *.base_domain and base_domain"""
+    try:
+        # Backup before creating certificate
+        create_backup(f"Before wildcard certificate creation for {base_domain}")
+        cert_path = Path("/etc/letsencrypt/live") / f"{base_domain}"
+
+        # Check if certificate already exists
+        if (cert_path / "fullchain.pem").exists():
+            logger.info(f"Wildcard certificate already exists for *.{base_domain}")
+            return {
+                'status': 'success',
+                'message': f'Wildcard certificate already exists for *.{base_domain}',
+                'action': 'skipped',
+                'path': str(cert_path)
+            }
+
+        # Get path to DNS helper script
+        dns_helper_script = Path(__file__).parent / "certbot_dns_helper.py"
+        if not dns_helper_script.exists():
+            logger.error(f"DNS helper script not found: {dns_helper_script}")
+            return {
+                'status': 'error',
+                'message': f'DNS helper script not found',
+                'action': 'failed'
+            }
+
+        # Create wildcard certificate with certbot using DNS-01 challenge
+        cmd = [
+            'certbot', 'certonly',
+            '--preferred-challenges=dns',
+            '--manual',
+            '--manual-auth-hook', f'{dns_helper_script} create {base_domain}',
+            '--manual-cleanup-hook', f'{dns_helper_script} remove {base_domain}',
+            '--non-interactive',
+            '--agree-tos',
+            '--email', f'admin@{base_domain}',
+            '-d', f'*.{base_domain}',
+            '-d', f'{base_domain}'
+        ]
+
+        logger.info(f"Creating wildcard certificate for *.{base_domain} and {base_domain} using DNS-01")
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300
+        )
+
+        if result.returncode == 0:
+            logger.info(f"Wildcard certificate created successfully for *.{base_domain}")
+
+            # Update config with wildcard info
+            config_manager = ConfigManager()
+            config_manager.config['wildcard'] = {
+                'base_domain': base_domain,
+                'created': datetime.now().isoformat(),
+                'expiry': None
+            }
+            config_manager.save()
+
+            return {
+                'status': 'success',
+                'message': f'Wildcard certificate created for *.{base_domain}',
+                'action': 'created',
+                'path': str(cert_path),
+                'method': 'DNS-01 Challenge',
+                'covers': [f'*.{base_domain}', base_domain]
+            }
+        else:
+            error_msg = result.stderr or result.stdout
+            logger.error(f"Failed to create wildcard certificate for {base_domain}: {error_msg}")
+            return {
+                'status': 'error',
+                'message': f'Wildcard certificate creation failed: {error_msg}',
+                'action': 'failed',
+                'error': error_msg
+            }
+
+    except subprocess.TimeoutExpired:
+        logger.error(f"Wildcard certificate creation timeout for {base_domain}")
+        return {
+            'status': 'error',
+            'message': 'Certificate creation timeout (exceeded 5 minutes)',
+            'action': 'timeout'
+        }
+    except Exception as e:
+        logger.error(f"Error creating wildcard certificate for {base_domain}: {e}")
+        return {
+            'status': 'error',
+            'message': f'Error: {str(e)}',
+            'action': 'error',
+            'error': str(e)
+        }
+
+
+def create_ssl_certificate(domain_name):
+    """Create SSL certificate using certbot via Let's Encrypt with DNS-01 challenge"""
+    try:
+        cert_path = Path("/etc/letsencrypt/live") / domain_name
+
+        # Check if certificate already exists
+        if (cert_path / "fullchain.pem").exists():
+            logger.info(f"Certificate already exists for {domain_name}")
+            return {
+                'status': 'success',
+                'message': f'Certificate already exists for {domain_name}',
+                'action': 'skipped',
+                'path': str(cert_path)
+            }
+
+        # Get path to DNS helper script
+        dns_helper_script = Path(__file__).parent / "certbot_dns_helper.py"
+        if not dns_helper_script.exists():
+            logger.error(f"DNS helper script not found: {dns_helper_script}")
+            return {
+                'status': 'error',
+                'message': f'DNS helper script not found',
+                'action': 'failed'
+            }
+
+        # Create certificate with certbot using DNS-01 challenge
+        # This avoids port 80 conflicts and is more reliable
+        cmd = [
+            'certbot', 'certonly',
+            '--preferred-challenges=dns',
+            '--manual',
+            '--manual-auth-hook', f'{dns_helper_script} create {domain_name}',
+            '--manual-cleanup-hook', f'{dns_helper_script} remove {domain_name}',
+            '--non-interactive',
+            '--agree-tos',
+            '--email', f'admin@{domain_name}',
+            '-d', domain_name
+        ]
+
+        logger.info(f"Creating certificate for {domain_name} using DNS-01 challenge")
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=300  # DNS validation can take longer
+        )
+
+        if result.returncode == 0:
+            logger.info(f"SSL certificate created successfully for {domain_name}")
+            return {
+                'status': 'success',
+                'message': f'SSL certificate created for {domain_name} via DNS-01',
+                'action': 'created',
+                'path': str(cert_path),
+                'method': 'DNS-01 Challenge'
+            }
+        else:
+            error_msg = result.stderr or result.stdout
+            logger.error(f"Failed to create certificate for {domain_name}: {error_msg}")
+            return {
+                'status': 'error',
+                'message': f'Certificate creation failed (DNS-01): {error_msg}',
+                'action': 'failed',
+                'error': error_msg,
+                'method': 'DNS-01 Challenge'
+            }
+
+    except subprocess.TimeoutExpired:
+        logger.error(f"Certificate creation timeout for {domain_name}")
+        return {
+            'status': 'error',
+            'message': 'Certificate creation timeout (exceeded 5 minutes)',
+            'action': 'timeout'
+        }
+    except Exception as e:
+        logger.error(f"Error creating certificate for {domain_name}: {e}")
+        return {
+            'status': 'error',
+            'message': f'Error: {str(e)}',
+            'action': 'error',
+            'error': str(e)
+        }
+
+
 def login_required(f):
     """Require login for route"""
     @wraps(f)
@@ -269,6 +483,7 @@ def api_add_domain():
     domain_name = data.get('domain_name')
     ipv4_enabled = data.get('ipv4_enabled', True)
     ipv6_enabled = data.get('ipv6_enabled', True)
+    auto_certificate = data.get('auto_certificate', True)
 
     if not domain_name:
         return jsonify({'error': 'Domain name required'}), 400
@@ -277,7 +492,20 @@ def api_add_domain():
     config_manager.add_domain(domain_name, ipv4_enabled, ipv6_enabled)
 
     logger.info(f"Domain added by {session['username']}: {domain_name}")
-    return jsonify({'status': 'success', 'message': f'Domain {domain_name} added'})
+
+    result = {'status': 'success', 'message': f'Domain {domain_name} added', 'domain': domain_name}
+
+    # Attempt to create SSL certificate if requested
+    if auto_certificate:
+        cert_result = create_ssl_certificate(domain_name)
+        result['certificate'] = cert_result
+        if cert_result['status'] == 'success':
+            result['message'] += ' (SSL certificate created)'
+        else:
+            logger.warning(f"Certificate creation for {domain_name} returned: {cert_result}")
+            result['message'] += ' (but certificate creation needs manual attention)'
+
+    return jsonify(result)
 
 
 @app.route('/api/domain/delete/<domain_name>', methods=['POST'])
@@ -413,6 +641,75 @@ def api_delete_token(token):
         return jsonify({'error': 'Token not found'}), 404
 
 
+@app.route('/api/wildcard/create', methods=['POST'])
+@login_required
+def api_create_wildcard():
+    """Create wildcard SSL certificate"""
+    data = request.get_json()
+    base_domain = data.get('base_domain')
+
+    if not base_domain:
+        return jsonify({'error': 'Base domain required'}), 400
+
+    logger.info(f"Wildcard certificate creation requested by {session['username']} for *.{base_domain}")
+    result = create_wildcard_certificate(base_domain)
+    return jsonify(result)
+
+
+@app.route('/api/wildcard/status', methods=['GET'])
+@login_required
+def api_wildcard_status():
+    """Get wildcard certificate status"""
+    config_manager = ConfigManager()
+    wildcard_config = config_manager.config.get('wildcard', {})
+
+    if not wildcard_config.get('base_domain'):
+        return jsonify({
+            'status': 'success',
+            'has_wildcard': False,
+            'message': 'No wildcard certificate configured'
+        })
+
+    base_domain = wildcard_config['base_domain']
+    cert_path = Path("/etc/letsencrypt/live") / base_domain / "fullchain.pem"
+
+    if cert_path.exists():
+        try:
+            import subprocess
+            result = subprocess.run(
+                ['openssl', 'x509', '-in', str(cert_path), '-noout', '-enddate'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            expiry = result.stdout.strip().replace('notAfter=', '') if result.returncode == 0 else 'Unknown'
+
+            return jsonify({
+                'status': 'success',
+                'has_wildcard': True,
+                'base_domain': base_domain,
+                'covers': [f'*.{base_domain}', base_domain],
+                'expiry': expiry,
+                'created': wildcard_config.get('created'),
+                'cert_path': str(cert_path)
+            })
+        except Exception as e:
+            logger.warning(f"Error reading wildcard cert: {e}")
+            return jsonify({
+                'status': 'success',
+                'has_wildcard': True,
+                'base_domain': base_domain,
+                'message': 'Certificate exists but unable to read details'
+            })
+    else:
+        return jsonify({
+            'status': 'success',
+            'has_wildcard': False,
+            'base_domain': base_domain,
+            'message': 'Wildcard configured but certificate file not found'
+        })
+
+
 @app.route('/settings')
 @login_required
 def settings():
@@ -426,7 +723,9 @@ def settings():
         'client_id': config_manager.config.get('ispconfig_client_id', '0')
     }
 
-    return render_template('settings.html', ispconfig=ispconfig_config, admin=admin)
+    wildcard_config = config_manager.config.get('wildcard', {})
+
+    return render_template('settings.html', ispconfig=ispconfig_config, admin=admin, wildcard=wildcard_config)
 
 
 @app.route('/api/settings/ispconfig', methods=['POST'])
@@ -434,6 +733,9 @@ def settings():
 def api_update_ispconfig():
     """Update ISPConfig settings"""
     data = request.get_json()
+
+    # Backup before changing critical settings
+    create_backup("Before ISPConfig settings update")
 
     config_manager = ConfigManager()
     config_manager.config['ispconfig_url'] = data.get('ispconfig_url')
@@ -462,12 +764,132 @@ def api_change_password():
     if not check_password_hash(admin['password_hash'], current_password):
         return jsonify({'error': 'Current password incorrect'}), 401
 
+    # Backup before changing password
+    create_backup("Before admin password change")
+
     admin['password_hash'] = generate_password_hash(new_password)
     save_admin(admin)
 
     logger.info(f"Password changed by {session['username']}")
     flash('Password changed successfully', 'success')
     return jsonify({'status': 'success', 'message': 'Password changed'})
+
+
+@app.route('/api/domain/create-certificate/<domain_name>', methods=['POST'])
+@login_required
+def api_create_certificate(domain_name):
+    """Manually create SSL certificate for domain"""
+    cert_result = create_ssl_certificate(domain_name)
+    logger.info(f"Certificate creation requested by {session['username']} for {domain_name}")
+    return jsonify(cert_result)
+
+
+@app.route('/api/certificate-status/<domain_name>', methods=['GET'])
+@login_required
+def api_certificate_status(domain_name):
+    """Check if SSL certificate exists for domain"""
+    cert_path = Path("/etc/letsencrypt/live") / domain_name / "fullchain.pem"
+
+    if cert_path.exists():
+        try:
+            import subprocess
+            # Get certificate expiry
+            result = subprocess.run(
+                ['openssl', 'x509', '-in', str(cert_path), '-noout', '-enddate'],
+                capture_output=True,
+                text=True,
+                timeout=5
+            )
+            expiry = result.stdout.strip().replace('notAfter=', '') if result.returncode == 0 else 'Unknown'
+
+            return jsonify({
+                'status': 'success',
+                'has_certificate': True,
+                'domain': domain_name,
+                'cert_path': str(cert_path),
+                'expiry': expiry,
+                'protocol': 'HTTPS'
+            })
+        except Exception as e:
+            logger.warning(f"Error reading cert for {domain_name}: {e}")
+            return jsonify({
+                'status': 'success',
+                'has_certificate': True,
+                'domain': domain_name,
+                'protocol': 'HTTPS',
+                'note': 'Certificate exists but unable to read expiry'
+            })
+    else:
+        return jsonify({
+            'status': 'success',
+            'has_certificate': False,
+            'domain': domain_name,
+            'protocol': 'HTTP',
+            'message': 'No certificate found. Domain accessible via HTTP only. Create certificate with: sudo certbot certonly -d ' + domain_name
+        })
+
+
+@app.route('/api/backups/list', methods=['GET'])
+@login_required
+def api_list_backups():
+    """List available backups"""
+    try:
+        backup_mgr = BackupManager()
+        backups_by_file = {}
+
+        for file_path in [str(CONFIG_FILE), str(ADMIN_FILE)]:
+            backups = backup_mgr.list_backups(file_path)
+            if backups:
+                backups_by_file[file_path] = backups
+
+        return jsonify({
+            'status': 'success',
+            'backups': backups_by_file
+        })
+    except Exception as e:
+        logger.error(f"Error listing backups: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+
+@app.route('/api/backups/restore/<file_type>/<int:backup_index>', methods=['POST'])
+@login_required
+def api_restore_backup(file_type, backup_index):
+    """Restore a backup"""
+    try:
+        backup_mgr = BackupManager()
+
+        # Map file type to file path
+        file_map = {
+            'config': str(CONFIG_FILE),
+            'admin': str(ADMIN_FILE)
+        }
+
+        if file_type not in file_map:
+            return jsonify({'error': 'Invalid file type'}), 400
+
+        file_path = file_map[file_type]
+
+        # Create backup of current state before restoring
+        create_backup(f"Before restoring {file_type} backup #{backup_index}")
+
+        # Restore
+        success = backup_mgr.restore_file(file_path, backup_index)
+
+        if success:
+            logger.info(f"Restored {file_type} backup by {session['username']}")
+            return jsonify({
+                'status': 'success',
+                'message': f'{file_type.capitalize()} restored from backup'
+            })
+        else:
+            return jsonify({'error': 'Failed to restore backup'}), 500
+
+    except Exception as e:
+        logger.error(f"Error restoring backup: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/status')

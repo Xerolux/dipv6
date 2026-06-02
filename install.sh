@@ -21,10 +21,13 @@ if [[ $EUID -ne 0 ]]; then
    exit 1
 fi
 
-# Install Python dependencies
-echo -e "${YELLOW}Installing Python dependencies...${NC}"
+# Install system dependencies
+echo -e "${YELLOW}Installing system dependencies...${NC}"
 apt-get update
-apt-get install -y python3 python3-pip python3-venv
+apt-get install -y \
+    python3 python3-pip python3-venv \
+    certbot \
+    openssl
 
 python3 -m venv /opt/dynipv6/venv
 /opt/dynipv6/venv/bin/pip install --upgrade pip

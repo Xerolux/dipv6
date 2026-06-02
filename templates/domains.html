@@ -94,6 +94,17 @@
                                                 </span>
                                             {% endif %}
                                         </div>
+                                        <div id="cert-status-{{ loop.index }}" class="mt-2">
+                                            <small id="cert-badge-{{ loop.index }}" class="text-muted">
+                                                <i class="fas fa-spinner fa-spin"></i> Checking...
+                                            </small>
+                                            <button class="btn btn-xs btn-outline-warning mt-2"
+                                                    id="cert-btn-{{ loop.index }}"
+                                                    onclick="createCertificate('{{ domain.domain }}', {{ loop.index }})"
+                                                    style="display:none;">
+                                                <i class="fas fa-certificate"></i> Create Certificate
+                                            </button>
+                                        </div>
                                     </td>
                                     <td>
                                         {% if domain.last_update %}
@@ -158,6 +169,16 @@
                         Enable IPv6 Updates
                     </label>
                 </div>
+                <hr class="my-3">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="autoCertificate" checked>
+                    <label class="form-check-label" for="autoCertificate">
+                        <i class="fas fa-certificate"></i> Auto Create SSL Certificate
+                    </label>
+                </div>
+                <small class="text-muted d-block mt-2">
+                    Automatically create SSL certificate via Let's Encrypt when domain is added
+                </small>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -263,10 +284,68 @@
 <script>
     let currentDomain = null;
 
+    // Check certificate status for each domain on page load
+    async function checkCertificateStatus() {
+        const domains = document.querySelectorAll('[id^="cert-status-"]');
+        domains.forEach(async (elem, index) => {
+            const domainName = document.querySelectorAll('tbody tr')[index]?.querySelector('td')?.textContent?.trim();
+            if (!domainName) return;
+
+            try {
+                const response = await fetch(`/api/certificate-status/${domainName}`);
+                const data = await response.json();
+                const badge = document.getElementById(`cert-badge-${index + 1}`);
+                const btn = document.getElementById(`cert-btn-${index + 1}`);
+
+                if (data.has_certificate) {
+                    badge.innerHTML = `<span class="badge bg-success"><i class="fas fa-lock"></i> HTTPS</span>`;
+                    if (data.expiry) {
+                        badge.innerHTML += `<br><small class="text-success">${data.expiry}</small>`;
+                    }
+                    if (btn) btn.style.display = 'none';
+                } else {
+                    badge.innerHTML = `<span class="badge bg-warning"><i class="fas fa-exclamation-triangle"></i> HTTP Only</span>`;
+                    badge.innerHTML += `<br><small class="text-warning">No certificate found</small>`;
+                    if (btn) btn.style.display = 'inline-block';
+                }
+            } catch (error) {
+                document.getElementById(`cert-badge-${index + 1}`).innerHTML =
+                    `<span class="badge bg-secondary">Unknown</span>`;
+            }
+        });
+    }
+
+    async function createCertificate(domain, index) {
+        const btn = document.getElementById(`cert-btn-${index}`);
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Creating...';
+
+        try {
+            const response = await apiCall(`/api/domain/create-certificate/${domain}`, 'POST');
+
+            if (response.status === 'success') {
+                showNotification(`✅ SSL certificate created for ${domain}!`, 'success');
+                setTimeout(() => checkCertificateStatus(), 2000);
+            } else {
+                showNotification(`❌ Error: ${response.message || response.error}`, 'danger');
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-certificate"></i> Create Certificate';
+            }
+        } catch (error) {
+            showNotification('Error creating certificate: ' + error, 'danger');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-certificate"></i> Create Certificate';
+        }
+    }
+
+    // Run on page load
+    document.addEventListener('DOMContentLoaded', checkCertificateStatus);
+
     async function addDomain() {
         const domainName = document.getElementById('domainName').value.trim();
         const enableIPv4 = document.getElementById('enableIPv4').checked;
         const enableIPv6 = document.getElementById('enableIPv6').checked;
+        const autoCertificate = document.getElementById('autoCertificate').checked;
 
         if (!domainName) {
             showNotification('Please enter a domain name', 'danger');
@@ -277,14 +356,23 @@
             const response = await apiCall('/api/domain/add', 'POST', {
                 domain_name: domainName,
                 ipv4_enabled: enableIPv4,
-                ipv6_enabled: enableIPv6
+                ipv6_enabled: enableIPv6,
+                auto_certificate: autoCertificate
             });
 
             if (response.status === 'success') {
-                showNotification('Domain added successfully!', 'success');
+                let message = 'Domain added successfully!';
+                if (response.certificate) {
+                    if (response.certificate.status === 'success') {
+                        message += ' ✅ SSL certificate created!';
+                    } else if (response.certificate.status === 'error') {
+                        message += ' ⚠️ Domain added but certificate creation failed. Check logs.';
+                    }
+                }
+                showNotification(message, 'success');
                 document.getElementById('domainName').value = '';
                 bootstrap.Modal.getInstance(document.getElementById('addDomainModal')).hide();
-                setTimeout(() => location.reload(), 1000);
+                setTimeout(() => location.reload(), 1500);
             }
         } catch (error) {
             showNotification('Error adding domain: ' + error, 'danger');
