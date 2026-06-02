@@ -59,9 +59,16 @@
                                     </td>
                                     <td>
                                         {% if domain.ipv6 %}
-                                            <code class="bg-light p-2 rounded small">
-                                                <span title="{{ domain.ipv6 }}">{{ domain.ipv6[:20] }}...</span>
-                                            </code>
+                                            <div>
+                                                <code class="bg-light p-2 rounded small d-block mb-1">
+                                                    <span title="{{ domain.ipv6 }}">{{ domain.ipv6[:20] }}...</span>
+                                                </code>
+                                                {% if domain.use_calculated_ipv6 and domain.ipv6_host and domain.ipv6_host != domain.ipv6 %}
+                                                    <small class="text-success" title="Calculated host IP from network">
+                                                        <i class="fas fa-calculator"></i> Host: {{ domain.ipv6_host[:20] }}...
+                                                    </small>
+                                                {% endif %}
+                                            </div>
                                         {% else %}
                                             <span class="text-muted">Not set</span>
                                         {% endif %}
@@ -101,7 +108,7 @@
                                             <i class="fas fa-network-wired"></i> Set IP
                                         </button>
                                         <button class="btn btn-sm btn-outline-primary"
-                                                onclick="editDomain('{{ domain.domain }}', {{ domain.ipv4_enabled|lower }}, {{ domain.ipv6_enabled|lower }})">
+                                                onclick="editDomain('{{ domain.domain }}', {{ domain.ipv4_enabled|lower }}, {{ domain.ipv6_enabled|lower }}, {{ domain.use_calculated_ipv6|lower }})">
                                             <i class="fas fa-edit"></i> Edit
                                         </button>
                                         <button class="btn btn-sm btn-outline-danger"
@@ -185,6 +192,16 @@
                         Enable IPv6 Updates
                     </label>
                 </div>
+                <hr class="my-3">
+                <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" id="editUseCalculatedIPv6">
+                    <label class="form-check-label" for="editUseCalculatedIPv6">
+                        <i class="fas fa-calculator"></i> Use Calculated Host IP for IPv6 /56
+                    </label>
+                </div>
+                <small class="text-muted d-block mt-2">
+                    If enabled, automatically calculates and uses the host IP from IPv6 network prefix (e.g., /56 → ::1)
+                </small>
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -274,22 +291,25 @@
         }
     }
 
-    function editDomain(domain, ipv4, ipv6) {
+    function editDomain(domain, ipv4, ipv6, useCalculated = false) {
         currentDomain = domain;
         document.getElementById('editDomainName').value = domain;
         document.getElementById('editEnableIPv4').checked = ipv4;
         document.getElementById('editEnableIPv6').checked = ipv6;
+        document.getElementById('editUseCalculatedIPv6').checked = useCalculated;
         new bootstrap.Modal(document.getElementById('editDomainModal')).show();
     }
 
     async function updateDomain() {
         const enableIPv4 = document.getElementById('editEnableIPv4').checked;
         const enableIPv6 = document.getElementById('editEnableIPv6').checked;
+        const useCalculatedIPv6 = document.getElementById('editUseCalculatedIPv6').checked;
 
         try {
             const response = await apiCall(`/api/domain/update/${currentDomain}`, 'POST', {
                 ipv4_enabled: enableIPv4,
-                ipv6_enabled: enableIPv6
+                ipv6_enabled: enableIPv6,
+                use_calculated_ipv6: useCalculatedIPv6
             });
 
             if (response.status === 'success') {

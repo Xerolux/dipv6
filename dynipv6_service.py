@@ -73,6 +73,39 @@ def load_config():
 
 config = load_config()
 
+def calculate_ipv6_host_ip(ipv6_input):
+    """
+    Calculate host IP from IPv6 network prefix.
+    E.g., 2001:db8:1234:5600::/56 → 2001:db8:1234:56::1
+    Also handles bare addresses: 2001:db8:1234:5600:: → 2001:db8:1234:56::1
+    Returns tuple (original_ip, calculated_ip) or (ip, ip) if no calculation needed
+    """
+    try:
+        # Try to parse as network (with /prefix)
+        if '/' in ipv6_input:
+            network = ipaddress.IPv6Network(ipv6_input, strict=False)
+            host_ip = network.network_address + 1  # First usable host in network
+            return (str(network.network_address), str(host_ip))
+        else:
+            # Try as address and assume /56 or /64
+            addr = ipaddress.IPv6Address(ipv6_input)
+            # Check if it looks like a network address (ends with ::)
+            addr_str = str(addr)
+            if addr_str.endswith('::') or addr_str.endswith(':0'):
+                # Likely a network address, calculate host IP
+                # For /56: keep first 7 groups, set last group to 1
+                # For simplicity: treat as /56 network and get first host
+                network = ipaddress.IPv6Network(f"{ipv6_input}/56", strict=False)
+                host_ip = network.network_address + 1
+                return (str(network.network_address), str(host_ip))
+            else:
+                # Regular address
+                return (str(addr), str(addr))
+    except Exception as e:
+        logger.warning(f"Could not calculate IPv6 host IP for {ipv6_input}: {e}")
+        return (ipv6_input, ipv6_input)
+
+
 class DNSRecord:
     """Store and manage DNS records"""
     def __init__(self, domain, record_type):
@@ -97,6 +130,13 @@ class DNSRecord:
             "updated": datetime.now().isoformat(),
             "updated_by": username
         }
+
+        # For IPv6 (AAAA records), calculate and store host IP variant
+        if self.record_type == 'AAAA':
+            original_ip, host_ip = calculate_ipv6_host_ip(value)
+            data["value_original"] = original_ip
+            data["value_host"] = host_ip
+
         with open(self.file, 'w') as f:
             json.dump(data, f, indent=2)
         logger.info(f"Updated {self.domain} ({self.record_type}): {value}")

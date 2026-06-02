@@ -76,11 +76,12 @@ class ConfigManager:
             json.dump(self.config, f, indent=2)
         logger.info(f"Configuration saved to {self.config_file}")
 
-    def add_domain(self, domain_name, ipv4_enabled=True, ipv6_enabled=True):
+    def add_domain(self, domain_name, ipv4_enabled=True, ipv6_enabled=True, use_calculated_ipv6=False):
         """Add or update domain configuration"""
         self.config['domains'][domain_name] = {
             "ipv4_enabled": ipv4_enabled,
             "ipv6_enabled": ipv6_enabled,
+            "use_calculated_ipv6": use_calculated_ipv6,
             "created": datetime.now().isoformat(),
             "last_update": None,
             "last_ipv4": None,
@@ -129,6 +130,8 @@ class ConfigManager:
             "domain": domain_name,
             "ipv4": None,
             "ipv6": None,
+            "ipv6_original": None,
+            "ipv6_host": None,
             "last_update": None
         }
 
@@ -142,6 +145,8 @@ class ConfigManager:
             with open(ipv6_file, 'r') as f:
                 data = json.load(f)
                 status['ipv6'] = data.get('value')
+                status['ipv6_original'] = data.get('value_original')
+                status['ipv6_host'] = data.get('value_host')
                 if not status['last_update'] or data.get('updated') > status['last_update']:
                     status['last_update'] = data.get('updated')
 
@@ -224,7 +229,8 @@ def dashboard():
         domain_config = config_manager.config['domains'][domain_name]
         status.update({
             'ipv4_enabled': domain_config.get('ipv4_enabled'),
-            'ipv6_enabled': domain_config.get('ipv6_enabled')
+            'ipv6_enabled': domain_config.get('ipv6_enabled'),
+            'use_calculated_ipv6': domain_config.get('use_calculated_ipv6', False)
         })
         domains.append(status)
 
@@ -247,7 +253,8 @@ def manage_domains():
         status.update({
             'config': domain_config,
             'ipv4_enabled': domain_config.get('ipv4_enabled'),
-            'ipv6_enabled': domain_config.get('ipv6_enabled')
+            'ipv6_enabled': domain_config.get('ipv6_enabled'),
+            'use_calculated_ipv6': domain_config.get('use_calculated_ipv6', False)
         })
         domains.append(status)
 
@@ -293,9 +300,10 @@ def api_update_domain(domain_name):
     data = request.get_json()
     ipv4_enabled = data.get('ipv4_enabled', True)
     ipv6_enabled = data.get('ipv6_enabled', True)
+    use_calculated_ipv6 = data.get('use_calculated_ipv6', False)
 
     config_manager = ConfigManager()
-    config_manager.add_domain(domain_name, ipv4_enabled, ipv6_enabled)
+    config_manager.add_domain(domain_name, ipv4_enabled, ipv6_enabled, use_calculated_ipv6)
 
     logger.info(f"Domain updated by {session['username']}: {domain_name}")
     return jsonify({'status': 'success', 'message': f'Domain {domain_name} updated'})
