@@ -1,0 +1,56 @@
+version: '3.8'
+
+services:
+  dynipv6:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: dynipv6
+    ports:
+      - "127.0.0.1:5000:5000"
+    volumes:
+      - ./config.json:/etc/dynipv6/config.json:ro
+      - dynipv6_data:/var/lib/dynipv6
+      - dynipv6_logs:/var/log/dynipv6
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    environment:
+      - FLASK_ENV=production
+      - LOG_LEVEL=INFO
+    restart: unless-stopped
+    networks:
+      - dynipv6_network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Optional: Nginx reverse proxy
+  nginx:
+    image: nginx:alpine
+    container_name: dynipv6_nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - nginx_cache:/var/cache/nginx
+    depends_on:
+      - dynipv6
+    restart: unless-stopped
+    networks:
+      - dynipv6_network
+
+volumes:
+  dynipv6_data:
+    driver: local
+  dynipv6_logs:
+    driver: local
+  nginx_cache:
+    driver: local
+
+networks:
+  dynipv6_network:
+    driver: bridge

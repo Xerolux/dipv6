@@ -1,0 +1,16 @@
+{
+  "ipv6_domain": "ipv6.xerolux.net",
+  "ipv4_domain": "ipv4.xerolux.net",
+  "ispconfig_url": "https://your-ispconfig-server.com:8080",
+  "ispconfig_username": "admin",
+  "ispconfig_password": "your-ispconfig-password",
+  "ispconfig_client_id": "0",
+  "auth_tokens": {
+    "your-secret-token-here": "UniFi-Device-Name",
+    "another-token": "Another-Device"
+  },
+  "ssl_cert": "/etc/letsencrypt/live/ipv6.xerolux.net/fullchain.pem",
+  "ssl_key": "/etc/letsencrypt/live/ipv6.xerolux.net/privkey.pem",
+  "port": 443,
+  "host": "0.0.0.0"
+}
