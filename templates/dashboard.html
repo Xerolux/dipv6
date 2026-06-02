@@ -1,0 +1,192 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - IP.Admin Panel{% endblock %}
+
+{% block content %}
+
+<div class="row mb-4">
+    <div class="col-12">
+        <h1 class="mb-0">
+            <i class="fas fa-tachometer-alt"></i> Dashboard
+        </h1>
+    </div>
+</div>
+
+<div class="row">
+    <!-- Statistics Cards -->
+    <div class="col-md-6 col-lg-3">
+        <div class="stat-card">
+            <div class="label">Active Domains</div>
+            <div class="value">{{ domains|length }}</div>
+            <small><i class="fas fa-globe"></i> Configured</small>
+        </div>
+    </div>
+
+    <div class="col-md-6 col-lg-3">
+        <div class="stat-card">
+            <div class="label">Authentication Tokens</div>
+            <div class="value">{{ token_count }}</div>
+            <small><i class="fas fa-key"></i> Active</small>
+        </div>
+    </div>
+
+    <div class="col-md-6 col-lg-3">
+        <div class="stat-card">
+            <div class="label">IPv4 Addresses</div>
+            <div class="value">{{ domains|selectattr('ipv4')|list|length }}</div>
+            <small><i class="fas fa-check-circle"></i> Configured</small>
+        </div>
+    </div>
+
+    <div class="col-md-6 col-lg-3">
+        <div class="stat-card">
+            <div class="label">IPv6 Addresses</div>
+            <div class="value">{{ domains|selectattr('ipv6')|list|length }}</div>
+            <small><i class="fas fa-check-circle"></i> Configured</small>
+        </div>
+    </div>
+</div>
+
+<!-- Domains Overview -->
+<div class="row mt-4">
+    <div class="col-12">
+        <div class="card">
+            <div class="card-header">
+                <i class="fas fa-globe"></i> Domains Overview
+            </div>
+            <div class="card-body">
+                {% if domains %}
+                    <div class="table-responsive">
+                        <table class="table">
+                            <thead>
+                                <tr>
+                                    <th>Domain</th>
+                                    <th>IPv4</th>
+                                    <th>IPv6</th>
+                                    <th>Status</th>
+                                    <th>Last Update</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for domain in domains %}
+                                <tr>
+                                    <td>
+                                        <strong>{{ domain.domain }}</strong>
+                                    </td>
+                                    <td>
+                                        {% if domain.ipv4 %}
+                                            <code class="bg-light p-2 rounded">{{ domain.ipv4 }}</code>
+                                        {% else %}
+                                            <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if domain.ipv6 %}
+                                            <code class="bg-light p-2 rounded small">{{ domain.ipv6[:20] }}...</code>
+                                        {% else %}
+                                            <span class="text-muted">—</span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if domain.ipv4 or domain.ipv6 %}
+                                            <span class="status-badge active">
+                                                <i class="fas fa-check-circle"></i> Active
+                                            </span>
+                                        {% else %}
+                                            <span class="status-badge inactive">
+                                                <i class="fas fa-times-circle"></i> Inactive
+                                            </span>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        {% if domain.last_update %}
+                                            <small class="text-muted">{{ domain.last_update[:10] }}</small>
+                                        {% else %}
+                                            <small class="text-muted">Never</small>
+                                        {% endif %}
+                                    </td>
+                                    <td>
+                                        <a href="{{ url_for('manage_domains') }}" class="btn btn-sm btn-outline-primary">
+                                            <i class="fas fa-edit"></i> Edit
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                {% else %}
+                    <div class="alert alert-info">
+                        <i class="fas fa-info-circle"></i>
+                        No domains configured yet. <a href="{{ url_for('manage_domains') }}">Add a domain</a>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Quick Actions -->
+<div class="row mt-4">
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <i class="fas fa-bolt"></i> Quick Actions
+            </div>
+            <div class="card-body">
+                <div class="d-grid gap-2">
+                    <a href="{{ url_for('manage_domains') }}" class="btn btn-primary">
+                        <i class="fas fa-plus"></i> Add New Domain
+                    </a>
+                    <a href="{{ url_for('manage_tokens') }}" class="btn btn-primary">
+                        <i class="fas fa-plus"></i> Create Token
+                    </a>
+                    <a href="{{ url_for('settings') }}" class="btn btn-secondary">
+                        <i class="fas fa-cog"></i> Settings
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="col-md-6">
+        <div class="card">
+            <div class="card-header">
+                <i class="fas fa-info-circle"></i> System Information
+            </div>
+            <div class="card-body">
+                <div class="row">
+                    <div class="col-sm-6">
+                        <p><strong>Service Status:</strong></p>
+                        <p><span class="badge badge-success">Running</span></p>
+                    </div>
+                    <div class="col-sm-6">
+                        <p><strong>Last Refresh:</strong></p>
+                        <p id="refresh-time" class="text-muted small">Just now</p>
+                    </div>
+                </div>
+                <hr>
+                <p class="text-muted small mb-0">
+                    <i class="fas fa-sync-alt"></i>
+                    Page auto-refreshes every 30 seconds
+                </p>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+    // Update refresh time
+    function updateRefreshTime() {
+        const now = new Date();
+        document.getElementById('refresh-time').textContent = now.toLocaleTimeString();
+    }
+
+    updateRefreshTime();
+    setInterval(updateRefreshTime, 1000);
+</script>
+{% endblock %}

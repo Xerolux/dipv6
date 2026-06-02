@@ -1,0 +1,36 @@
+[Unit]
+Description=Dynamic IPv6/IPv4 DDNS Service
+Documentation=file:///usr/share/doc/dynipv6/README.md
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/var/lib/dynipv6
+
+# Start service
+ExecStart=/opt/dynipv6/venv/bin/python3 /opt/dynipv6/dynipv6_service.py
+
+# Restart policy
+Restart=always
+RestartSec=10
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/var/lib/dynipv6 /var/log/dynipv6 /etc/dynipv6
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dynipv6
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=512
+
+[Install]
+WantedBy=multi-user.target
