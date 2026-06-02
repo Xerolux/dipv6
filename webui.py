@@ -8,6 +8,7 @@ import os
 import json
 import hashlib
 import secrets
+import subprocess
 from datetime import datetime, timedelta
 from functools import wraps
 from pathlib import Path
@@ -173,6 +174,75 @@ def save_admin(admin_data):
     os.chmod(ADMIN_FILE, 0o600)
 
 
+def create_ssl_certificate(domain_name):
+    """Create SSL certificate using certbot via Let's Encrypt"""
+    try:
+        cert_path = Path("/etc/letsencrypt/live") / domain_name
+
+        # Check if certificate already exists
+        if (cert_path / "fullchain.pem").exists():
+            logger.info(f"Certificate already exists for {domain_name}")
+            return {
+                'status': 'success',
+                'message': f'Certificate already exists for {domain_name}',
+                'action': 'skipped',
+                'path': str(cert_path)
+            }
+
+        # Create certificate with certbot (standalone mode)
+        # Note: This requires port 80 to be free or manual DNS challenge
+        cmd = [
+            'certbot', 'certonly',
+            '--standalone',
+            '--non-interactive',
+            '--agree-tos',
+            '--email', 'admin@' + domain_name,
+            '-d', domain_name
+        ]
+
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+
+        if result.returncode == 0:
+            logger.info(f"SSL certificate created successfully for {domain_name}")
+            return {
+                'status': 'success',
+                'message': f'SSL certificate created for {domain_name}',
+                'action': 'created',
+                'path': str(cert_path),
+                'output': result.stdout
+            }
+        else:
+            error_msg = result.stderr or result.stdout
+            logger.error(f"Failed to create certificate for {domain_name}: {error_msg}")
+            return {
+                'status': 'error',
+                'message': f'Failed to create certificate: {error_msg}',
+                'action': 'failed',
+                'error': error_msg
+            }
+
+    except subprocess.TimeoutExpired:
+        logger.error(f"Certificate creation timeout for {domain_name}")
+        return {
+            'status': 'error',
+            'message': 'Certificate creation timeout',
+            'action': 'timeout'
+        }
+    except Exception as e:
+        logger.error(f"Error creating certificate for {domain_name}: {e}")
+        return {
+            'status': 'error',
+            'message': f'Error: {str(e)}',
+            'action': 'error',
+            'error': str(e)
+        }
+
+
 def login_required(f):
     """Require login for route"""
     @wraps(f)
@@ -269,6 +339,7 @@ def api_add_domain():
     domain_name = data.get('domain_name')
     ipv4_enabled = data.get('ipv4_enabled', True)
     ipv6_enabled = data.get('ipv6_enabled', True)
+    auto_certificate = data.get('auto_certificate', True)
 
     if not domain_name:
         return jsonify({'error': 'Domain name required'}), 400
@@ -277,7 +348,20 @@ def api_add_domain():
     config_manager.add_domain(domain_name, ipv4_enabled, ipv6_enabled)
 
     logger.info(f"Domain added by {session['username']}: {domain_name}")
-    return jsonify({'status': 'success', 'message': f'Domain {domain_name} added'})
+
+    result = {'status': 'success', 'message': f'Domain {domain_name} added', 'domain': domain_name}
+
+    # Attempt to create SSL certificate if requested
+    if auto_certificate:
+        cert_result = create_ssl_certificate(domain_name)
+        result['certificate'] = cert_result
+        if cert_result['status'] == 'success':
+            result['message'] += ' (SSL certificate created)'
+        else:
+            logger.warning(f"Certificate creation for {domain_name} returned: {cert_result}")
+            result['message'] += ' (but certificate creation needs manual attention)'
+
+    return jsonify(result)
 
 
 @app.route('/api/domain/delete/<domain_name>', methods=['POST'])
@@ -468,6 +552,15 @@ def api_change_password():
     logger.info(f"Password changed by {session['username']}")
     flash('Password changed successfully', 'success')
     return jsonify({'status': 'success', 'message': 'Password changed'})
+
+
+@app.route('/api/domain/create-certificate/<domain_name>', methods=['POST'])
+@login_required
+def api_create_certificate(domain_name):
+    """Manually create SSL certificate for domain"""
+    cert_result = create_ssl_certificate(domain_name)
+    logger.info(f"Certificate creation requested by {session['username']} for {domain_name}")
+    return jsonify(cert_result)
 
 
 @app.route('/api/certificate-status/<domain_name>', methods=['GET'])
