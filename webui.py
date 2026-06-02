@@ -175,7 +175,7 @@ def save_admin(admin_data):
 
 
 def create_ssl_certificate(domain_name):
-    """Create SSL certificate using certbot via Let's Encrypt"""
+    """Create SSL certificate using certbot via Let's Encrypt with DNS-01 challenge"""
     try:
         cert_path = Path("/etc/letsencrypt/live") / domain_name
 
@@ -189,48 +189,63 @@ def create_ssl_certificate(domain_name):
                 'path': str(cert_path)
             }
 
-        # Create certificate with certbot (standalone mode)
-        # Note: This requires port 80 to be free or manual DNS challenge
+        # Get path to DNS helper script
+        dns_helper_script = Path(__file__).parent / "certbot_dns_helper.py"
+        if not dns_helper_script.exists():
+            logger.error(f"DNS helper script not found: {dns_helper_script}")
+            return {
+                'status': 'error',
+                'message': f'DNS helper script not found',
+                'action': 'failed'
+            }
+
+        # Create certificate with certbot using DNS-01 challenge
+        # This avoids port 80 conflicts and is more reliable
         cmd = [
             'certbot', 'certonly',
-            '--standalone',
+            '--preferred-challenges=dns',
+            '--manual',
+            '--manual-auth-hook', f'{dns_helper_script} create {domain_name}',
+            '--manual-cleanup-hook', f'{dns_helper_script} remove {domain_name}',
             '--non-interactive',
             '--agree-tos',
-            '--email', 'admin@' + domain_name,
+            '--email', f'admin@{domain_name}',
             '-d', domain_name
         ]
 
+        logger.info(f"Creating certificate for {domain_name} using DNS-01 challenge")
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
-            timeout=60
+            timeout=300  # DNS validation can take longer
         )
 
         if result.returncode == 0:
             logger.info(f"SSL certificate created successfully for {domain_name}")
             return {
                 'status': 'success',
-                'message': f'SSL certificate created for {domain_name}',
+                'message': f'SSL certificate created for {domain_name} via DNS-01',
                 'action': 'created',
                 'path': str(cert_path),
-                'output': result.stdout
+                'method': 'DNS-01 Challenge'
             }
         else:
             error_msg = result.stderr or result.stdout
             logger.error(f"Failed to create certificate for {domain_name}: {error_msg}")
             return {
                 'status': 'error',
-                'message': f'Failed to create certificate: {error_msg}',
+                'message': f'Certificate creation failed (DNS-01): {error_msg}',
                 'action': 'failed',
-                'error': error_msg
+                'error': error_msg,
+                'method': 'DNS-01 Challenge'
             }
 
     except subprocess.TimeoutExpired:
         logger.error(f"Certificate creation timeout for {domain_name}")
         return {
             'status': 'error',
-            'message': 'Certificate creation timeout',
+            'message': 'Certificate creation timeout (exceeded 5 minutes)',
             'action': 'timeout'
         }
     except Exception as e:
