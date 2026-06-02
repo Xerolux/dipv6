@@ -16,6 +16,7 @@ import requests
 import ipaddress
 from functools import wraps
 from werkzeug.middleware.proxy_fix import ProxyFix
+from ispconfig_api import ISPConfigAPI
 
 # Configuration
 CONFIG_DIR = Path("/etc/dynipv6")
@@ -120,36 +121,26 @@ def validate_token(f):
     return decorated_function
 
 def update_ispconfig_dns(domain, record_type, value):
-    """Update DNS record in ISPConfig via API"""
+    """Update or create DNS record in ISPConfig"""
     try:
-        session = requests.Session()
-        session.verify = False
+        api = ISPConfigAPI(
+            url=config['ispconfig_url'],
+            username=config['ispconfig_username'],
+            password=config['ispconfig_password'],
+            client_id=config.get('ispconfig_client_id', '0'),
+            verify_ssl=config.get('ispconfig_verify_ssl', False)
+        )
 
-        url = f"{config['ispconfig_url']}/api/dnsrecord/update"
+        success = api.update_or_create_record(domain, record_type, value, ttl=3600)
 
-        data = {
-            'username': config['ispconfig_username'],
-            'password': config['ispconfig_password'],
-            'client_id': config['ispconfig_client_id'],
-            'data': json.dumps({
-                'name': domain,
-                'type': record_type,
-                'data': value,
-                'ttl': 3600,
-                'active': 'y'
-            })
-        }
-
-        response = session.post(url, data=data, timeout=10)
-
-        if response.status_code == 200:
-            logger.info(f"ISPConfig API update for {domain} ({record_type}): {value}")
-            return True
+        if success:
+            logger.info(f"ISPConfig: Updated {domain} ({record_type}) = {value}")
         else:
-            logger.warning(f"ISPConfig API error: {response.status_code} - {response.text}")
-            return False
+            logger.warning(f"ISPConfig: Failed to update {domain} ({record_type})")
+
+        return success
     except Exception as e:
-        logger.error(f"ISPConfig update failed: {e}")
+        logger.error(f"ISPConfig update error: {e}")
         return False
 
 @app.route('/api/update', methods=['GET', 'POST'])
@@ -245,6 +236,38 @@ def health_check():
         "service": "dynipv6"
     })
 
+@app.route('/api/ispconfig-test', methods=['GET'])
+@validate_token
+def test_ispconfig():
+    """Test ISPConfig API connection"""
+    try:
+        api = ISPConfigAPI(
+            url=config['ispconfig_url'],
+            username=config['ispconfig_username'],
+            password=config['ispconfig_password'],
+            client_id=config.get('ispconfig_client_id', '0'),
+            verify_ssl=config.get('ispconfig_verify_ssl', False)
+        )
+
+        if api.test_connection():
+            return jsonify({
+                "status": "success",
+                "message": "ISPConfig connection successful",
+                "server": config['ispconfig_url']
+            })
+        else:
+            return jsonify({
+                "status": "error",
+                "message": "ISPConfig connection failed",
+                "server": config['ispconfig_url']
+            }), 503
+    except Exception as e:
+        logger.error(f"ISPConfig test error: {e}")
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
+
 @app.route('/', methods=['GET'])
 def index():
     """Service information"""
@@ -254,9 +277,10 @@ def index():
         "endpoints": {
             "/api/update": "Update DNS records (requires token)",
             "/api/status": "Get current records status (requires token)",
+            "/api/ispconfig-test": "Test ISPConfig connection (requires token)",
             "/api/health": "Health check"
         },
-        "documentation": "See config.json for setup instructions"
+        "documentation": "See README.md for setup instructions"
     })
 
 @app.errorhandler(404)
