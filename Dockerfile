@@ -21,7 +21,7 @@ RUN mkdir -p /etc/dynipv6 /var/lib/dynipv6 /var/log/dynipv6
 RUN useradd -m -u 33 www-data || true
 
 # Set permissions
-RUN chown -R www-data:www-data /var/lib/dynipv6 /var/log/dynipv6 /app
+RUN chown -R www-data:www-data /etc/dynipv6 /var/lib/dynipv6 /var/log/dynipv6 /app
 
 # Use non-root user
 USER www-data

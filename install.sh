@@ -26,7 +26,9 @@ echo -e "${YELLOW}Installing Python dependencies...${NC}"
 apt-get update
 apt-get install -y python3 python3-pip python3-venv
 
-pip3 install flask flask-cors requests gunicorn
+python3 -m venv /opt/dynipv6/venv
+/opt/dynipv6/venv/bin/pip install --upgrade pip
+/opt/dynipv6/venv/bin/pip install flask flask-cors requests gunicorn
 
 # Create directories
 echo -e "${YELLOW}Creating directories...${NC}"
@@ -40,13 +42,21 @@ mkdir -p /usr/share/doc/dynipv6
 echo -e "${YELLOW}Installing service files...${NC}"
 cp dynipv6_service.py /opt/dynipv6/
 cp dynipv6.service /etc/systemd/system/
-cp config.json.example /etc/dynipv6/config.json || true
+cp requirements.txt /opt/dynipv6/
 cp README.md /usr/share/doc/dynipv6/
+
+# Copy config only if it doesn't exist (preserve existing config on upgrades)
+if [ ! -f /etc/dynipv6/config.json ]; then
+    cp config.json.example /etc/dynipv6/config.json
+else
+    echo -e "${YELLOW}Preserving existing configuration at /etc/dynipv6/config.json${NC}"
+fi
 
 # Set permissions
 chmod 755 /opt/dynipv6/dynipv6_service.py
 chmod 644 /etc/systemd/system/dynipv6.service
-chmod 644 /etc/dynipv6/config.json
+chmod 600 /etc/dynipv6/config.json
+chown -R www-data:www-data /etc/dynipv6
 chown -R www-data:www-data /var/lib/dynipv6
 chown -R www-data:www-data /var/log/dynipv6
 chown -R www-data:www-data /opt/dynipv6

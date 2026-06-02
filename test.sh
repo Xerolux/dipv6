@@ -265,24 +265,22 @@ echo ""
 
 echo -e "${YELLOW}=== Reverse Proxy Configuration ===${NC}"
 
-# Check Nginx
-if command -v nginx &> /dev/null; then
-    if systemctl is-active --quiet nginx; then
-        test_result 0 "Nginx is installed and running"
-    else
-        test_result 1 "Nginx is installed but not running"
-    fi
-else
-    test_result 1 "Nginx not found (or Apache should be configured)"
+# Check Nginx and Apache
+NGINX_RUNNING=0
+APACHE_RUNNING=0
+
+if command -v nginx &> /dev/null && systemctl is-active --quiet nginx; then
+    NGINX_RUNNING=1
+    test_result 0 "Nginx is installed and running"
 fi
 
-# Check Apache
-if command -v apache2ctl &> /dev/null; then
-    if systemctl is-active --quiet apache2; then
-        test_result 0 "Apache is installed and running"
-    else
-        test_result 1 "Apache is installed but not running"
-    fi
+if command -v apache2ctl &> /dev/null && systemctl is-active --quiet apache2; then
+    APACHE_RUNNING=1
+    test_result 0 "Apache is installed and running"
+fi
+
+if [ $NGINX_RUNNING -eq 0 ] && [ $APACHE_RUNNING -eq 0 ]; then
+    test_result 1 "No active reverse proxy (Nginx or Apache) found running"
 fi
 
 echo ""

@@ -13,7 +13,9 @@ from pathlib import Path
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import requests
+import ipaddress
 from functools import wraps
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 # Configuration
 CONFIG_DIR = Path("/etc/dynipv6")
@@ -37,6 +39,7 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 CORS(app)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
 
 # Load configuration
 CONFIG_FILE = CONFIG_DIR / "config.json"
@@ -52,8 +55,8 @@ DEFAULT_CONFIG = {
     },
     "ssl_cert": "/etc/letsencrypt/live/ipv6.xerolux.net/fullchain.pem",
     "ssl_key": "/etc/letsencrypt/live/ipv6.xerolux.net/privkey.pem",
-    "port": 443,
-    "host": "0.0.0.0"
+    "port": 5000,
+    "host": "127.0.0.1"
 }
 
 def load_config():
@@ -117,29 +120,18 @@ def validate_token(f):
     return decorated_function
 
 def update_ispconfig_dns(domain, record_type, value):
-    """Update DNS record in ISPConfig"""
+    """Update DNS record in ISPConfig via API"""
     try:
-        # ISPConfig API endpoint
-        url = f"{config['ispconfig_url']}/api/dnszone/update"
-
         session = requests.Session()
-        session.verify = False  # Disable SSL verification for ISPConfig (use with caution!)
+        session.verify = False
 
-        # Get DNS zone ID first
-        params = {
-            'username': config['ispconfig_username'],
-            'password': config['ispconfig_password'],
-            'client_id': config['ispconfig_client_id'],
-            'id': domain
-        }
+        url = f"{config['ispconfig_url']}/api/dnsrecord/update"
 
-        # Update DNS record
         data = {
             'username': config['ispconfig_username'],
             'password': config['ispconfig_password'],
             'client_id': config['ispconfig_client_id'],
             'data': json.dumps({
-                'id': domain,
                 'name': domain,
                 'type': record_type,
                 'data': value,
@@ -151,13 +143,13 @@ def update_ispconfig_dns(domain, record_type, value):
         response = session.post(url, data=data, timeout=10)
 
         if response.status_code == 200:
-            logger.info(f"ISPConfig update successful for {domain}")
+            logger.info(f"ISPConfig API update for {domain} ({record_type}): {value}")
             return True
         else:
-            logger.warning(f"ISPConfig update failed: {response.text}")
+            logger.warning(f"ISPConfig API error: {response.status_code} - {response.text}")
             return False
     except Exception as e:
-        logger.error(f"ISPConfig update error: {e}")
+        logger.error(f"ISPConfig update failed: {e}")
         return False
 
 @app.route('/api/update', methods=['GET', 'POST'])
@@ -177,6 +169,12 @@ def update_dns():
             if ipv6.lower() == 'auto':
                 ipv6 = request.remote_addr
 
+            try:
+                if ipaddress.ip_address(ipv6).version != 6:
+                    raise ValueError()
+            except ValueError:
+                return jsonify({"status": "error", "message": f"Invalid IPv6 address: {ipv6}"}), 400
+
             record_ipv6 = DNSRecord(config['ipv6_domain'], 'AAAA')
             record_ipv6.set(ipv6, hostname, request.device_name)
             update_ispconfig_dns(config['ipv6_domain'], 'AAAA', ipv6)
@@ -186,6 +184,12 @@ def update_dns():
         if ipv4:
             if ipv4.lower() == 'auto':
                 ipv4 = request.remote_addr
+
+            try:
+                if ipaddress.ip_address(ipv4).version != 4:
+                    raise ValueError()
+            except ValueError:
+                return jsonify({"status": "error", "message": f"Invalid IPv4 address: {ipv4}"}), 400
 
             record_ipv4 = DNSRecord(config['ipv4_domain'], 'A')
             record_ipv4.set(ipv4, hostname, request.device_name)

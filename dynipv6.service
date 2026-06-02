@@ -10,7 +10,7 @@ Group=www-data
 WorkingDirectory=/var/lib/dynipv6
 
 # Start service
-ExecStart=/usr/bin/python3 /opt/dynipv6/dynipv6_service.py
+ExecStart=/opt/dynipv6/venv/bin/python3 /opt/dynipv6/dynipv6_service.py
 
 # Restart policy
 Restart=always
