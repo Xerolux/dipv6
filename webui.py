@@ -17,6 +17,7 @@ import logging
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
+from backup_manager import BackupManager
 
 # Configuration paths
 CONFIG_DIR = Path("/etc/dynipv6")
@@ -179,9 +180,38 @@ def save_admin(admin_data):
     os.chmod(ADMIN_FILE, 0o600)
 
 
+def create_backup(description: str = ""):
+    """Create automatic backup of critical files"""
+    try:
+        backup_mgr = BackupManager()
+        backed_up = []
+
+        # Backup critical configuration files
+        for file_path in [CONFIG_FILE, ADMIN_FILE]:
+            if Path(file_path).exists():
+                result = backup_mgr.backup_file(str(file_path), description)
+                if result:
+                    backed_up.append(file_path)
+                    logger.info(f"Backed up {file_path}")
+
+        return {
+            'status': 'success',
+            'files_backed_up': backed_up,
+            'backup_count': len(backed_up)
+        }
+    except Exception as e:
+        logger.error(f"Error creating backup: {e}")
+        return {
+            'status': 'error',
+            'message': str(e)
+        }
+
+
 def create_wildcard_certificate(base_domain):
     """Create wildcard SSL certificate for *.base_domain and base_domain"""
     try:
+        # Backup before creating certificate
+        create_backup(f"Before wildcard certificate creation for {base_domain}")
         cert_path = Path("/etc/letsencrypt/live") / f"{base_domain}"
 
         # Check if certificate already exists
@@ -704,6 +734,9 @@ def api_update_ispconfig():
     """Update ISPConfig settings"""
     data = request.get_json()
 
+    # Backup before changing critical settings
+    create_backup("Before ISPConfig settings update")
+
     config_manager = ConfigManager()
     config_manager.config['ispconfig_url'] = data.get('ispconfig_url')
     config_manager.config['ispconfig_username'] = data.get('ispconfig_username')
@@ -730,6 +763,9 @@ def api_change_password():
 
     if not check_password_hash(admin['password_hash'], current_password):
         return jsonify({'error': 'Current password incorrect'}), 401
+
+    # Backup before changing password
+    create_backup("Before admin password change")
 
     admin['password_hash'] = generate_password_hash(new_password)
     save_admin(admin)
@@ -791,6 +827,69 @@ def api_certificate_status(domain_name):
             'protocol': 'HTTP',
             'message': 'No certificate found. Domain accessible via HTTP only. Create certificate with: sudo certbot certonly -d ' + domain_name
         })
+
+
+@app.route('/api/backups/list', methods=['GET'])
+@login_required
+def api_list_backups():
+    """List available backups"""
+    try:
+        backup_mgr = BackupManager()
+        backups_by_file = {}
+
+        for file_path in [str(CONFIG_FILE), str(ADMIN_FILE)]:
+            backups = backup_mgr.list_backups(file_path)
+            if backups:
+                backups_by_file[file_path] = backups
+
+        return jsonify({
+            'status': 'success',
+            'backups': backups_by_file
+        })
+    except Exception as e:
+        logger.error(f"Error listing backups: {e}")
+        return jsonify({
+            'status': 'error',
+            'message': str(e)
+        }), 500
+
+
+@app.route('/api/backups/restore/<file_type>/<int:backup_index>', methods=['POST'])
+@login_required
+def api_restore_backup(file_type, backup_index):
+    """Restore a backup"""
+    try:
+        backup_mgr = BackupManager()
+
+        # Map file type to file path
+        file_map = {
+            'config': str(CONFIG_FILE),
+            'admin': str(ADMIN_FILE)
+        }
+
+        if file_type not in file_map:
+            return jsonify({'error': 'Invalid file type'}), 400
+
+        file_path = file_map[file_type]
+
+        # Create backup of current state before restoring
+        create_backup(f"Before restoring {file_type} backup #{backup_index}")
+
+        # Restore
+        success = backup_mgr.restore_file(file_path, backup_index)
+
+        if success:
+            logger.info(f"Restored {file_type} backup by {session['username']}")
+            return jsonify({
+                'status': 'success',
+                'message': f'{file_type.capitalize()} restored from backup'
+            })
+        else:
+            return jsonify({'error': 'Failed to restore backup'}), 500
+
+    except Exception as e:
+        logger.error(f"Error restoring backup: {e}")
+        return jsonify({'error': str(e)}), 500
 
 
 @app.route('/api/status')
