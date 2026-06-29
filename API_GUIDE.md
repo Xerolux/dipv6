@@ -50,10 +50,40 @@ curl -X POST "https://dyn.blueml.one/api/update" \
 
 ## What Happens on Update
 
-1. **IPv6 is stored** locally in `/var/lib/dynipv6/`
-2. **ISPConfig is updated** with the new AAAA record for the configured domain
-3. **DNS propagates** - `home.blueml.one` now resolves to the new IPv6 address
-4. **Optional: Nginx is updated** if `nginx_update_enabled: true` in config
+The endpoint iterates over **every domain configured in the Web-UI** (`config['domains']`)
+and applies the update to each one based on its individual settings:
+
+1. **IPv6/IPv4 is stored** locally in `/var/lib/dynipv6/`
+2. **Per domain**, the update is routed based on its `dynamic_dns.service`:
+   - `custom` → sent to the domain's custom DDNS endpoint (Hostname / Username / Password / Server from the Web-UI)
+   - otherwise → **ISPConfig** updates the AAAA / A record
+3. Each domain's `ipv4_enabled` / `ipv6_enabled` toggles are respected
+4. If `use_calculated_ipv6` is set, the calculated host IP (e.g. `::1`) is published instead of the raw prefix
+5. **Optional: Nginx is updated** if `nginx_update_enabled: true` (ISPConfig path only)
+
+The config file is re-read on every request, so changes made in the Web-UI take
+effect immediately — no service restart required.
+
+> **Legacy fallback:** if `domains` is empty, the service falls back to the single
+> `ipv6_domain` / `ipv4_domain` settings.
+
+**Multi-domain response example:**
+```json
+{
+  "status": "success",
+  "timestamp": "2026-06-29T12:30:45.123456",
+  "updates": {
+    "home.blueml.one": {
+      "method": "ispconfig",
+      "ipv6": { "status": "success", "address": "2001:db8::1", "nginx_updated": false }
+    },
+    "custom.blueml.one": {
+      "method": "custom",
+      "result": { "status": "success", "message": "Update sent to https://provider.example.com/nic/update" }
+    }
+  }
+}
+```
 
 ## UniFi Setup
 
