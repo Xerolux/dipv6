@@ -157,9 +157,21 @@
             </div>
             <div class="modal-body">
                 <div class="form-group mb-3">
-                    <label for="domainName" class="form-label">Domain Name</label>
-                    <input type="text" class="form-control" id="domainName"
-                           placeholder="e.g., ipv6.example.com">
+                    <label class="form-label">Domain</label>
+                    <!-- Composed mode: subdomain prefix + ISPConfig zone dropdown -->
+                    <div class="input-group" id="domainComposed">
+                        <input type="text" class="form-control" id="domainPrefix"
+                               placeholder="test" oninput="updateDomainPreview()">
+                        <span class="input-group-text">.</span>
+                        <select class="form-select" id="domainZone"
+                                onchange="updateDomainPreview()" style="max-width: 60%;">
+                            <option value="">Loading zones...</option>
+                        </select>
+                    </div>
+                    <!-- Fallback mode: full domain free text (if no zones available) -->
+                    <input type="text" class="form-control" id="domainNameFull"
+                           placeholder="e.g., test.example.com" style="display:none;">
+                    <small class="form-text text-muted" id="domainPreview"></small>
                 </div>
                 <div class="form-check form-switch">
                     <input class="form-check-input" type="checkbox" id="enableIPv4" checked>
@@ -411,10 +423,69 @@
     }
 
     // Run on page load
-    document.addEventListener('DOMContentLoaded', checkCertificateStatus);
+    document.addEventListener('DOMContentLoaded', () => {
+        checkCertificateStatus();
+        loadZones();
+    });
+
+    let zonesAvailable = false;
+
+    // Load DNS zones from ISPConfig and populate the dropdown
+    async function loadZones() {
+        const composed = document.getElementById('domainComposed');
+        const fullInput = document.getElementById('domainNameFull');
+        const zoneSelect = document.getElementById('domainZone');
+
+        try {
+            const response = await apiCall('/api/ispconfig/zones', 'GET');
+            const zones = response.zones || [];
+
+            if (zones.length > 0) {
+                zoneSelect.innerHTML = zones
+                    .map(z => `<option value="${z}">${z}</option>`)
+                    .join('');
+                composed.style.display = 'flex';
+                fullInput.style.display = 'none';
+                zonesAvailable = true;
+            } else {
+                // No zones found - fall back to free-text full domain input
+                composed.style.display = 'none';
+                fullInput.style.display = 'block';
+                zonesAvailable = false;
+            }
+        } catch (error) {
+            composed.style.display = 'none';
+            fullInput.style.display = 'block';
+            zonesAvailable = false;
+        }
+        updateDomainPreview();
+    }
+
+    // Show a live preview of the resulting full domain name
+    function updateDomainPreview() {
+        const preview = document.getElementById('domainPreview');
+        if (!zonesAvailable) {
+            preview.textContent = '';
+            return;
+        }
+        const fqdn = composeDomainName();
+        preview.textContent = fqdn ? `Full domain: ${fqdn}` : '';
+    }
+
+    // Build the FQDN from prefix + zone, or from the fallback field
+    function composeDomainName() {
+        if (zonesAvailable) {
+            const prefix = document.getElementById('domainPrefix').value.trim()
+                .replace(/\.+$/, '');  // strip trailing dots
+            const zone = document.getElementById('domainZone').value;
+            if (!zone) return '';
+            return prefix ? `${prefix}.${zone}` : zone;
+        }
+        return document.getElementById('domainNameFull').value.trim();
+    }
 
     async function addDomain() {
-        const domainName = document.getElementById('domainName').value.trim();
+        const domainName = composeDomainName();
         const enableIPv4 = document.getElementById('enableIPv4').checked;
         const enableIPv6 = document.getElementById('enableIPv6').checked;
         const autoCertificate = document.getElementById('autoCertificate').checked;
@@ -442,7 +513,8 @@
                     }
                 }
                 showNotification(message, 'success');
-                document.getElementById('domainName').value = '';
+                document.getElementById('domainPrefix').value = '';
+                document.getElementById('domainNameFull').value = '';
                 bootstrap.Modal.getInstance(document.getElementById('addDomainModal')).hide();
                 setTimeout(() => location.reload(), 1500);
             }

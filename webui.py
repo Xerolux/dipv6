@@ -19,6 +19,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 from backup_manager import BackupManager
 from custom_ddns import send_custom_ddns_update
+from ispconfig_api import ISPConfigAPI
 
 # Configuration paths
 CONFIG_DIR = Path("/etc/dynipv6")
@@ -477,6 +478,26 @@ def manage_domains():
         domains.append(status)
 
     return render_template('domains.html', domains=domains)
+
+
+@app.route('/api/ispconfig/zones', methods=['GET'])
+@login_required
+def api_ispconfig_zones():
+    """List DNS zones available in ISPConfig for the domain dropdown"""
+    config_manager = ConfigManager()
+    try:
+        api = ISPConfigAPI(
+            url=config_manager.config.get('ispconfig_url', ''),
+            username=config_manager.config.get('ispconfig_username', ''),
+            password=config_manager.config.get('ispconfig_password', ''),
+            client_id=config_manager.config.get('ispconfig_client_id', '0'),
+            verify_ssl=config_manager.config.get('ispconfig_verify_ssl', False)
+        )
+        zones = api.list_dns_zones()
+        return jsonify({'status': 'success', 'zones': zones})
+    except Exception as e:
+        logger.error(f"Error listing ISPConfig zones: {e}")
+        return jsonify({'status': 'error', 'zones': [], 'message': str(e)})
 
 
 @app.route('/api/domain/add', methods=['POST'])
