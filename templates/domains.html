@@ -118,6 +118,10 @@
                                                 onclick="openSetIPModal('{{ domain.domain }}', '{{ domain.ipv4 or '' }}', '{{ domain.ipv6 or '' }}')">
                                             <i class="fas fa-network-wired"></i> Set IP
                                         </button>
+                                        <button class="btn btn-sm btn-outline-info"
+                                                onclick="openDynamicDNSModal('{{ domain.domain }}')">
+                                            <i class="fas fa-globe"></i> DDNS
+                                        </button>
                                         <button class="btn btn-sm btn-outline-primary"
                                                 onclick="editDomain('{{ domain.domain }}', {{ domain.ipv4_enabled|lower }}, {{ domain.ipv6_enabled|lower }}, {{ domain.use_calculated_ipv6|lower }})">
                                             <i class="fas fa-edit"></i> Edit
@@ -153,9 +157,21 @@
             </div>
             <div class="modal-body">
                 <div class="form-group mb-3">
-                    <label for="domainName" class="form-label">Domain Name</label>
-                    <input type="text" class="form-control" id="domainName"
-                           placeholder="e.g., ipv6.example.com">
+                    <label class="form-label">Domain</label>
+                    <!-- Composed mode: subdomain prefix + ISPConfig zone dropdown -->
+                    <div class="input-group" id="domainComposed">
+                        <input type="text" class="form-control" id="domainPrefix"
+                               placeholder="test" oninput="updateDomainPreview()">
+                        <span class="input-group-text">.</span>
+                        <select class="form-select" id="domainZone"
+                                onchange="updateDomainPreview()" style="max-width: 60%;">
+                            <option value="">Loading zones...</option>
+                        </select>
+                    </div>
+                    <!-- Fallback mode: full domain free text (if no zones available) -->
+                    <input type="text" class="form-control" id="domainNameFull"
+                           placeholder="e.g., test.example.com" style="display:none;">
+                    <small class="form-text text-muted" id="domainPreview"></small>
                 </div>
                 <div class="form-check form-switch">
                     <input class="form-check-input" type="checkbox" id="enableIPv4" checked>
@@ -278,11 +294,79 @@
     </div>
 </div>
 
+<!-- Dynamic DNS Modal -->
+<div class="modal fade" id="dynamicDNSModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-globe"></i> Dynamic DNS
+                </h5>
+                <button type="button" class="btn-close modal-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group mb-3">
+                    <label for="ddnsDomainName" class="form-label">Domain</label>
+                    <input type="text" class="form-control" id="ddnsDomainName" disabled>
+                </div>
+                <div class="form-group mb-3">
+                    <label for="ddnsService" class="form-label">Service</label>
+                    <select class="form-select" id="ddnsService" onchange="updateDDNSServiceFields()">
+                        <option value="none">None (Use ISPConfig)</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                </div>
+
+                <div id="customDDNSFields" style="display: none;">
+                    <div class="form-group mb-3">
+                        <label for="ddnsHostname" class="form-label">Hostname</label>
+                        <input type="text" class="form-control" id="ddnsHostname"
+                               placeholder="e.g., example.com">
+                        <small class="form-text text-muted">Domain name to update</small>
+                    </div>
+                    <div class="form-group mb-3">
+                        <label for="ddnsUsername" class="form-label">Username</label>
+                        <input type="text" class="form-control" id="ddnsUsername"
+                               placeholder="API username or account">
+                    </div>
+                    <div class="form-group mb-3">
+                        <label for="ddnsPassword" class="form-label">Password</label>
+                        <input type="password" class="form-control" id="ddnsPassword"
+                               placeholder="API password or token">
+                        <small class="form-text text-muted">Stored securely, never transmitted to client</small>
+                    </div>
+                    <div class="form-group mb-3">
+                        <label for="ddnsServer" class="form-label">Server</label>
+                        <input type="text" class="form-control" id="ddnsServer"
+                               placeholder="e.g., https://api.provider.com/update">
+                        <small class="form-text text-muted">API endpoint URL</small>
+                    </div>
+                </div>
+
+                <div class="alert alert-info small">
+                    <i class="fas fa-info-circle"></i>
+                    <strong>Custom Service:</strong> Sends update requests to your specified server endpoint
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning" id="testDDNSBtn" onclick="testDynamicDNS()" style="display:none;">
+                    <i class="fas fa-flask"></i> Test
+                </button>
+                <button type="button" class="btn btn-primary" onclick="saveDynamicDNS()">
+                    <i class="fas fa-save"></i> Create
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
 {% endblock %}
 
 {% block extra_js %}
 <script>
     let currentDomain = null;
+    let dynamicDNSModalInstance = null;
 
     // Check certificate status for each domain on page load
     async function checkCertificateStatus() {
@@ -292,7 +376,7 @@
             if (!domainName) return;
 
             try {
-                const response = await fetch(`/api/certificate-status/${domainName}`);
+                const response = await fetch(withPrefix(`/api/certificate-status/${domainName}`));
                 const data = await response.json();
                 const badge = document.getElementById(`cert-badge-${index + 1}`);
                 const btn = document.getElementById(`cert-btn-${index + 1}`);
@@ -339,10 +423,69 @@
     }
 
     // Run on page load
-    document.addEventListener('DOMContentLoaded', checkCertificateStatus);
+    document.addEventListener('DOMContentLoaded', () => {
+        checkCertificateStatus();
+        loadZones();
+    });
+
+    let zonesAvailable = false;
+
+    // Load DNS zones from ISPConfig and populate the dropdown
+    async function loadZones() {
+        const composed = document.getElementById('domainComposed');
+        const fullInput = document.getElementById('domainNameFull');
+        const zoneSelect = document.getElementById('domainZone');
+
+        try {
+            const response = await apiCall('/api/ispconfig/zones', 'GET');
+            const zones = response.zones || [];
+
+            if (zones.length > 0) {
+                zoneSelect.innerHTML = zones
+                    .map(z => `<option value="${z}">${z}</option>`)
+                    .join('');
+                composed.style.display = 'flex';
+                fullInput.style.display = 'none';
+                zonesAvailable = true;
+            } else {
+                // No zones found - fall back to free-text full domain input
+                composed.style.display = 'none';
+                fullInput.style.display = 'block';
+                zonesAvailable = false;
+            }
+        } catch (error) {
+            composed.style.display = 'none';
+            fullInput.style.display = 'block';
+            zonesAvailable = false;
+        }
+        updateDomainPreview();
+    }
+
+    // Show a live preview of the resulting full domain name
+    function updateDomainPreview() {
+        const preview = document.getElementById('domainPreview');
+        if (!zonesAvailable) {
+            preview.textContent = '';
+            return;
+        }
+        const fqdn = composeDomainName();
+        preview.textContent = fqdn ? `Full domain: ${fqdn}` : '';
+    }
+
+    // Build the FQDN from prefix + zone, or from the fallback field
+    function composeDomainName() {
+        if (zonesAvailable) {
+            const prefix = document.getElementById('domainPrefix').value.trim()
+                .replace(/\.+$/, '');  // strip trailing dots
+            const zone = document.getElementById('domainZone').value;
+            if (!zone) return '';
+            return prefix ? `${prefix}.${zone}` : zone;
+        }
+        return document.getElementById('domainNameFull').value.trim();
+    }
 
     async function addDomain() {
-        const domainName = document.getElementById('domainName').value.trim();
+        const domainName = composeDomainName();
         const enableIPv4 = document.getElementById('enableIPv4').checked;
         const enableIPv6 = document.getElementById('enableIPv6').checked;
         const autoCertificate = document.getElementById('autoCertificate').checked;
@@ -370,7 +513,8 @@
                     }
                 }
                 showNotification(message, 'success');
-                document.getElementById('domainName').value = '';
+                document.getElementById('domainPrefix').value = '';
+                document.getElementById('domainNameFull').value = '';
                 bootstrap.Modal.getInstance(document.getElementById('addDomainModal')).hide();
                 setTimeout(() => location.reload(), 1500);
             }
@@ -457,6 +601,127 @@
             }
         } catch (error) {
             showNotification('Error setting IP address: ' + error, 'danger');
+        }
+    }
+
+    function updateDDNSServiceFields() {
+        const service = document.getElementById('ddnsService').value;
+        const customFields = document.getElementById('customDDNSFields');
+        const testBtn = document.getElementById('testDDNSBtn');
+        customFields.style.display = service === 'custom' ? 'block' : 'none';
+        testBtn.style.display = service === 'custom' ? 'inline-block' : 'none';
+    }
+
+    async function openDynamicDNSModal(domain) {
+        document.getElementById('ddnsDomainName').value = domain;
+
+        try {
+            const response = await apiCall(`/api/domain/dynamic-dns/${domain}`, 'GET');
+            const ddnsConfig = response.dynamic_dns;
+
+            document.getElementById('ddnsService').value = ddnsConfig.service || 'none';
+            document.getElementById('ddnsHostname').value = ddnsConfig.hostname || '';
+            document.getElementById('ddnsUsername').value = ddnsConfig.username || '';
+
+            const passwordInput = document.getElementById('ddnsPassword');
+            passwordInput.value = '';
+            if (ddnsConfig.has_password) {
+                passwordInput.placeholder = '•••••••• (leave blank to keep existing)';
+                passwordInput.dataset.hasPassword = 'true';
+            } else {
+                passwordInput.placeholder = 'API password or token';
+                passwordInput.dataset.hasPassword = 'false';
+            }
+
+            document.getElementById('ddnsServer').value = ddnsConfig.server || '';
+
+            updateDDNSServiceFields();
+
+            const modalElem = document.getElementById('dynamicDNSModal');
+            if (!dynamicDNSModalInstance) {
+                dynamicDNSModalInstance = new bootstrap.Modal(modalElem);
+            }
+            dynamicDNSModalInstance.show();
+        } catch (error) {
+            showNotification('Error loading DDNS config: ' + error, 'danger');
+        }
+    }
+
+    async function saveDynamicDNS() {
+        const domain = document.getElementById('ddnsDomainName').value;
+        const service = document.getElementById('ddnsService').value;
+
+        let ddnsData = { service };
+
+        if (service === 'custom') {
+            const hostname = document.getElementById('ddnsHostname').value.trim();
+            const username = document.getElementById('ddnsUsername').value.trim();
+            const password = document.getElementById('ddnsPassword').value.trim();
+            const server = document.getElementById('ddnsServer').value.trim();
+            const hasPassword = document.getElementById('ddnsPassword').dataset.hasPassword === 'true';
+
+            if (!hostname || !username || (!password && !hasPassword) || !server) {
+                showNotification('All fields are required for custom service', 'danger');
+                return;
+            }
+
+            ddnsData = { service, hostname, username, password, server };
+        }
+
+        try {
+            const response = await apiCall(`/api/domain/dynamic-dns/${domain}`, 'POST', ddnsData);
+
+            if (response.status === 'success') {
+                showNotification('Dynamic DNS configured successfully!', 'success');
+                if (dynamicDNSModalInstance) {
+                    dynamicDNSModalInstance.hide();
+                }
+                setTimeout(() => location.reload(), 1000);
+            }
+        } catch (error) {
+            showNotification('Error saving DDNS config: ' + error, 'danger');
+        }
+    }
+
+    async function testDynamicDNS() {
+        const domain = document.getElementById('ddnsDomainName').value;
+        const service = document.getElementById('ddnsService').value;
+
+        if (service !== 'custom') {
+            showNotification('Only custom service can be tested', 'warning');
+            return;
+        }
+
+        const hostname = document.getElementById('ddnsHostname').value.trim();
+        const username = document.getElementById('ddnsUsername').value.trim();
+        const password = document.getElementById('ddnsPassword').value.trim();
+        const server = document.getElementById('ddnsServer').value.trim();
+
+        if (!hostname || !username || !password || !server) {
+            showNotification('All fields are required to test', 'danger');
+            return;
+        }
+
+        const btn = event.target;
+        const origText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Testing...';
+
+        try {
+            const response = await apiCall(`/api/domain/dynamic-dns/${domain}/test`, 'POST', {
+                service, hostname, username, password, server
+            });
+
+            if (response.status === 'success') {
+                showNotification('✅ DDNS test successful!', 'success');
+            } else {
+                showNotification(`❌ Test failed: ${response.message}`, 'danger');
+            }
+        } catch (error) {
+            showNotification('Error testing DDNS: ' + error, 'danger');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = origText;
         }
     }
 </script>

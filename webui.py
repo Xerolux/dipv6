@@ -18,6 +18,8 @@ from flask import Flask, render_template, request, jsonify, session, redirect, u
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 from backup_manager import BackupManager
+from custom_ddns import send_custom_ddns_update
+from ispconfig_api import ISPConfigAPI
 
 # Configuration paths
 CONFIG_DIR = Path("/etc/dynipv6")
@@ -29,6 +31,25 @@ STATIC_DIR = Path(__file__).parent / "static"
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+class PrefixMiddleware:
+    """Honor X-Forwarded-Prefix so the app can be served behind a sub-path
+    (e.g. https://dyn.blueml.one/admin). Sets SCRIPT_NAME so url_for() and
+    request.script_root produce correctly prefixed links."""
+
+    def __init__(self, wsgi_app):
+        self.wsgi_app = wsgi_app
+
+    def __call__(self, environ, start_response):
+        prefix = environ.get('HTTP_X_FORWARDED_PREFIX', '')
+        if prefix:
+            prefix = '/' + prefix.strip('/')
+            environ['SCRIPT_NAME'] = prefix
+            path = environ.get('PATH_INFO', '')
+            if path.startswith(prefix):
+                environ['PATH_INFO'] = path[len(prefix):] or '/'
+        return self.wsgi_app(environ, start_response)
+
+
 # Flask app
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
@@ -36,6 +57,7 @@ app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=8)
+app.wsgi_app = PrefixMiddleware(app.wsgi_app)
 
 # Admin credentials file
 ADMIN_FILE = CONFIG_DIR / "admin.json"
@@ -83,17 +105,20 @@ class ConfigManager:
             json.dump(self.config, f, indent=2)
         logger.info(f"Configuration saved to {self.config_file}")
 
-    def add_domain(self, domain_name, ipv4_enabled=True, ipv6_enabled=True, use_calculated_ipv6=False):
+    def add_domain(self, domain_name, ipv4_enabled=True, ipv6_enabled=True, use_calculated_ipv6=False, dynamic_dns=None):
         """Add or update domain configuration"""
-        self.config['domains'][domain_name] = {
+        existing = self.config['domains'].get(domain_name, {})
+        domain_config = {
             "ipv4_enabled": ipv4_enabled,
             "ipv6_enabled": ipv6_enabled,
             "use_calculated_ipv6": use_calculated_ipv6,
-            "created": datetime.now().isoformat(),
-            "last_update": None,
-            "last_ipv4": None,
-            "last_ipv6": None
+            "created": existing.get("created", datetime.now().isoformat()),
+            "last_update": existing.get("last_update"),
+            "last_ipv4": existing.get("last_ipv4"),
+            "last_ipv6": existing.get("last_ipv6"),
+            "dynamic_dns": dynamic_dns if dynamic_dns is not None else existing.get("dynamic_dns", {})
         }
+        self.config['domains'][domain_name] = domain_config
         self.save()
         logger.info(f"Domain added/updated: {domain_name}")
 
@@ -473,6 +498,26 @@ def manage_domains():
         domains.append(status)
 
     return render_template('domains.html', domains=domains)
+
+
+@app.route('/api/ispconfig/zones', methods=['GET'])
+@login_required
+def api_ispconfig_zones():
+    """List DNS zones available in ISPConfig for the domain dropdown"""
+    config_manager = ConfigManager()
+    try:
+        api = ISPConfigAPI(
+            url=config_manager.config.get('ispconfig_url', ''),
+            username=config_manager.config.get('ispconfig_username', ''),
+            password=config_manager.config.get('ispconfig_password', ''),
+            client_id=config_manager.config.get('ispconfig_client_id', '0'),
+            verify_ssl=config_manager.config.get('ispconfig_verify_ssl', False)
+        )
+        zones = api.list_dns_zones()
+        return jsonify({'status': 'success', 'zones': zones})
+    except Exception as e:
+        logger.error(f"Error listing ISPConfig zones: {e}")
+        return jsonify({'status': 'error', 'zones': [], 'message': str(e)})
 
 
 @app.route('/api/domain/add', methods=['POST'])
@@ -890,6 +935,102 @@ def api_restore_backup(file_type, backup_index):
     except Exception as e:
         logger.error(f"Error restoring backup: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/domain/dynamic-dns/<domain_name>', methods=['GET'])
+@login_required
+def api_get_dynamic_dns(domain_name):
+    """Get dynamic DNS configuration for domain"""
+    config_manager = ConfigManager()
+
+    if domain_name not in config_manager.config['domains']:
+        return jsonify({'error': 'Domain not found'}), 404
+
+    domain_config = config_manager.config['domains'][domain_name]
+    dynamic_dns = domain_config.get('dynamic_dns', {})
+
+    # Don't return password in plain text
+    result = {
+        'status': 'success',
+        'domain': domain_name,
+        'dynamic_dns': {
+            'service': dynamic_dns.get('service', 'none'),
+            'hostname': dynamic_dns.get('hostname', ''),
+            'username': dynamic_dns.get('username', ''),
+            'server': dynamic_dns.get('server', ''),
+            'has_password': bool(dynamic_dns.get('password'))
+        }
+    }
+    return jsonify(result)
+
+
+@app.route('/api/domain/dynamic-dns/<domain_name>', methods=['POST'])
+@login_required
+def api_save_dynamic_dns(domain_name):
+    """Save dynamic DNS configuration for domain"""
+    data = request.get_json()
+    config_manager = ConfigManager()
+
+    if domain_name not in config_manager.config['domains']:
+        return jsonify({'error': 'Domain not found'}), 404
+
+    service = data.get('service', 'none')
+    existing_ddns = config_manager.config['domains'][domain_name].get('dynamic_dns', {})
+
+    password = data.get('password', '')
+    if service == 'custom':
+        if not password and existing_ddns.get('service') == 'custom':
+            password = existing_ddns.get('password', '')
+
+        if not all([data.get('hostname'), data.get('username'), password, data.get('server')]):
+            return jsonify({'error': 'All fields required for custom service'}), 400
+
+    dynamic_dns_config = {
+        'service': service,
+        'hostname': data.get('hostname', ''),
+        'username': data.get('username', ''),
+        'password': password,
+        'server': data.get('server', '')
+    }
+
+    config_manager.config['domains'][domain_name]['dynamic_dns'] = dynamic_dns_config
+    config_manager.save()
+
+    logger.info(f"Dynamic DNS configuration updated for {domain_name} by {session['username']}")
+    return jsonify({'status': 'success', 'message': f'Dynamic DNS configured for {domain_name}'})
+
+
+@app.route('/api/domain/dynamic-dns/<domain_name>/test', methods=['POST'])
+@login_required
+def api_test_dynamic_dns(domain_name):
+    """Test custom dynamic DNS configuration with provided values"""
+    data = request.get_json()
+    config_manager = ConfigManager()
+
+    if domain_name not in config_manager.config['domains']:
+        return jsonify({'error': 'Domain not found'}), 404
+
+    service = data.get('service', 'none')
+    if service != 'custom':
+        return jsonify({'status': 'skipped', 'message': 'Only custom service can be tested'}), 400
+
+    test_config = {
+        'service': service,
+        'hostname': data.get('hostname', ''),
+        'username': data.get('username', ''),
+        'password': data.get('password', ''),
+        'server': data.get('server', ''),
+        'dynamic_dns': {}
+    }
+
+    status = config_manager.get_domain_status(domain_name)
+    ipv4 = data.get('ipv4') or status.get('ipv4')
+    ipv6 = data.get('ipv6') or status.get('ipv6')
+
+    result = send_custom_ddns_update(test_config, ipv4=ipv4, ipv6=ipv6)
+    logger.info(f"DDNS test for {domain_name} by {session['username']}: {result}")
+
+    return jsonify(result)
 
 
 @app.route('/api/status')

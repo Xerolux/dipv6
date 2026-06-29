@@ -17,6 +17,8 @@ import ipaddress
 from functools import wraps
 from werkzeug.middleware.proxy_fix import ProxyFix
 from ispconfig_api import ISPConfigAPI
+from nginx_updater import update_and_reload_nginx
+from custom_ddns import send_custom_ddns_update
 
 # Configuration
 CONFIG_DIR = Path("/etc/dynipv6")
@@ -57,7 +59,8 @@ DEFAULT_CONFIG = {
     "ssl_cert": "/etc/letsencrypt/live/ipv6.xerolux.net/fullchain.pem",
     "ssl_key": "/etc/letsencrypt/live/ipv6.xerolux.net/privkey.pem",
     "port": 5000,
-    "host": "127.0.0.1"
+    "host": "127.0.0.1",
+    "nginx_update_enabled": False
 }
 
 def load_config():
@@ -72,6 +75,57 @@ def load_config():
         return DEFAULT_CONFIG
 
 config = load_config()
+
+
+def reload_config():
+    """Reload configuration from file so changes made via the Web-UI take effect
+    without restarting the service."""
+    global config
+    if CONFIG_FILE.exists():
+        with open(CONFIG_FILE, 'r') as f:
+            config = json.load(f)
+    return config
+
+
+def get_device_name(token_data):
+    """Extract a device name from a token entry, tolerating both formats:
+    - Web-UI format: {"name": ..., "device_name": ..., ...}
+    - Legacy format: "device_name" (plain string)
+    """
+    if isinstance(token_data, dict):
+        return token_data.get('device_name') or token_data.get('name') or 'unknown'
+    return token_data or 'unknown'
+
+
+def get_target_domains():
+    """Return a dict of {domain_name: domain_config} that should be updated.
+
+    Prefers the Web-UI managed `domains` map. Falls back to the legacy single
+    `ipv6_domain` / `ipv4_domain` settings when no domains are configured.
+    """
+    domains = config.get('domains')
+    if domains:
+        return domains
+
+    # Legacy fallback - synthesize domain configs from old-style settings
+    legacy = {}
+    ipv6_domain = config.get('ipv6_domain')
+    ipv4_domain = config.get('ipv4_domain')
+
+    if ipv6_domain:
+        legacy[ipv6_domain] = {
+            'ipv4_enabled': ipv6_domain == ipv4_domain,
+            'ipv6_enabled': True,
+            'dynamic_dns': {}
+        }
+    if ipv4_domain and ipv4_domain != ipv6_domain:
+        legacy[ipv4_domain] = {
+            'ipv4_enabled': True,
+            'ipv6_enabled': False,
+            'dynamic_dns': {}
+        }
+    return legacy
+
 
 def calculate_ipv6_host_ip(ipv6_input):
     """
@@ -146,6 +200,9 @@ def validate_token(f):
     """Validate authentication token"""
     @wraps(f)
     def decorated_function(*args, **kwargs):
+        # Reload config so tokens/domains added via the Web-UI are picked up
+        reload_config()
+
         token = request.args.get('token') or request.headers.get('Authorization', '').replace('Bearer ', '')
 
         if not token:
@@ -154,7 +211,7 @@ def validate_token(f):
         if token not in config.get("auth_tokens", {}):
             return jsonify({"status": "error", "message": "Invalid token"}), 401
 
-        request.device_name = config["auth_tokens"][token]
+        request.device_name = get_device_name(config["auth_tokens"][token])
         request.token = token
         return f(*args, **kwargs)
 
@@ -183,60 +240,132 @@ def update_ispconfig_dns(domain, record_type, value):
         logger.error(f"ISPConfig update error: {e}")
         return False
 
+def apply_update_for_domain(domain_name, domain_cfg, ipv6, ipv4, hostname, device_name):
+    """Apply an IP update to a single domain, respecting its enabled flags and
+    routing through Custom DDNS or ISPConfig depending on its configuration.
+
+    Returns a result dict, or None if nothing applied to this domain.
+    """
+    ddns = domain_cfg.get('dynamic_dns', {}) or {}
+    use_custom = ddns.get('service') == 'custom'
+
+    pub_ipv6 = None
+    pub_ipv4 = None
+
+    # Store records locally and determine the address to publish
+    if ipv6 and domain_cfg.get('ipv6_enabled', True):
+        data = DNSRecord(domain_name, 'AAAA').set(ipv6, hostname, device_name)
+        pub_ipv6 = ipv6
+        # Optionally publish the calculated host IP instead of the raw prefix
+        if domain_cfg.get('use_calculated_ipv6') and data.get('value_host'):
+            pub_ipv6 = data['value_host']
+
+    if ipv4 and domain_cfg.get('ipv4_enabled', True):
+        DNSRecord(domain_name, 'A').set(ipv4, hostname, device_name)
+        pub_ipv4 = ipv4
+
+    if not pub_ipv6 and not pub_ipv4:
+        return None
+
+    result = {}
+
+    if use_custom:
+        # Route the update to the per-domain custom DDNS endpoint
+        ddns_result = send_custom_ddns_update(domain_cfg, ipv4=pub_ipv4, ipv6=pub_ipv6)
+        result['method'] = 'custom'
+        result['result'] = ddns_result
+        logger.info(f"Custom DDNS update for {domain_name}: {ddns_result.get('status')}")
+        return result
+
+    # Default: route through ISPConfig
+    result['method'] = 'ispconfig'
+
+    if pub_ipv6:
+        ok = update_ispconfig_dns(domain_name, 'AAAA', pub_ipv6)
+        nginx_updated = False
+        if config.get('nginx_update_enabled', False):
+            nginx_updated = update_and_reload_nginx(pub_ipv6, domain_name)
+            if nginx_updated:
+                logger.info(f"Nginx updated with IPv6: {pub_ipv6}")
+            else:
+                logger.warning(f"Nginx update failed for {domain_name}")
+        result['ipv6'] = {
+            "status": "success" if ok else "error",
+            "address": pub_ipv6,
+            "nginx_updated": nginx_updated
+        }
+
+    if pub_ipv4:
+        ok = update_ispconfig_dns(domain_name, 'A', pub_ipv4)
+        result['ipv4'] = {
+            "status": "success" if ok else "error",
+            "address": pub_ipv4
+        }
+
+    return result
+
+
 @app.route('/api/update', methods=['GET', 'POST'])
 @validate_token
 def update_dns():
-    """Update DNS records - compatible with UniFi and dynv6 clients"""
+    """Update DNS records - compatible with UniFi and dynv6 clients.
+
+    Iterates over all configured domains and routes each through Custom DDNS or
+    ISPConfig based on its per-domain configuration.
+    """
     try:
-        # Get parameters from query string or POST data
-        ipv6 = request.args.get('ipv6prefix') or request.form.get('ipv6prefix')
+        # Get parameters from query string or POST data (accept ipv6prefix or ipv6)
+        ipv6 = (request.args.get('ipv6prefix') or request.form.get('ipv6prefix')
+                or request.args.get('ipv6') or request.form.get('ipv6'))
         ipv4 = request.args.get('ipv4') or request.form.get('ipv4')
         hostname = request.args.get('hostname') or request.form.get('hostname')
 
-        results = {}
+        # Resolve 'auto' to the request source address
+        if ipv6 and ipv6.lower() == 'auto':
+            ipv6 = request.remote_addr
+        if ipv4 and ipv4.lower() == 'auto':
+            ipv4 = request.remote_addr
 
-        # Update IPv6
+        # Validate provided addresses
         if ipv6:
-            if ipv6.lower() == 'auto':
-                ipv6 = request.remote_addr
-
             try:
                 if ipaddress.ip_address(ipv6).version != 6:
                     raise ValueError()
             except ValueError:
                 return jsonify({"status": "error", "message": f"Invalid IPv6 address: {ipv6}"}), 400
-
-            record_ipv6 = DNSRecord(config['ipv6_domain'], 'AAAA')
-            record_ipv6.set(ipv6, hostname, request.device_name)
-            update_ispconfig_dns(config['ipv6_domain'], 'AAAA', ipv6)
-            results['ipv6'] = {"status": "success", "address": ipv6}
-
-        # Update IPv4
         if ipv4:
-            if ipv4.lower() == 'auto':
-                ipv4 = request.remote_addr
-
             try:
                 if ipaddress.ip_address(ipv4).version != 4:
                     raise ValueError()
             except ValueError:
                 return jsonify({"status": "error", "message": f"Invalid IPv4 address: {ipv4}"}), 400
 
-            record_ipv4 = DNSRecord(config['ipv4_domain'], 'A')
-            record_ipv4.set(ipv4, hostname, request.device_name)
-            update_ispconfig_dns(config['ipv4_domain'], 'A', ipv4)
-            results['ipv4'] = {"status": "success", "address": ipv4}
+        if not ipv6 and not ipv4:
+            return jsonify({"status": "error", "message": "No IPv4 or IPv6 provided"}), 400
 
-        if not results:
+        targets = get_target_domains()
+        if not targets:
+            return jsonify({"status": "error", "message": "No domains configured"}), 400
+
+        device_name = getattr(request, 'device_name', 'unknown')
+        updates = {}
+        for domain_name, domain_cfg in targets.items():
+            domain_result = apply_update_for_domain(
+                domain_name, domain_cfg, ipv6, ipv4, hostname, device_name
+            )
+            if domain_result:
+                updates[domain_name] = domain_result
+
+        if not updates:
             return jsonify({
                 "status": "error",
-                "message": "No IPv4 or IPv6 provided"
+                "message": "No domain accepted the update (check enabled flags)"
             }), 400
 
         return jsonify({
             "status": "success",
             "timestamp": datetime.now().isoformat(),
-            "updates": results
+            "updates": updates
         })
 
     except Exception as e:
@@ -249,15 +378,21 @@ def update_dns():
 @app.route('/api/status', methods=['GET'])
 @validate_token
 def get_status():
-    """Get current DNS records status"""
+    """Get current DNS records status for all configured domains"""
     try:
-        ipv6_record = DNSRecord(config['ipv6_domain'], 'AAAA').get()
-        ipv4_record = DNSRecord(config['ipv4_domain'], 'A').get()
+        domains_status = {}
+        for domain_name, domain_cfg in get_target_domains().items():
+            domains_status[domain_name] = {
+                "ipv6": DNSRecord(domain_name, 'AAAA').get(),
+                "ipv4": DNSRecord(domain_name, 'A').get(),
+                "ipv6_enabled": domain_cfg.get('ipv6_enabled', True),
+                "ipv4_enabled": domain_cfg.get('ipv4_enabled', True),
+                "ddns_service": (domain_cfg.get('dynamic_dns', {}) or {}).get('service', 'none')
+            }
 
         return jsonify({
             "status": "success",
-            "ipv6": ipv6_record,
-            "ipv4": ipv4_record,
+            "domains": domains_status,
             "timestamp": datetime.now().isoformat()
         })
     except Exception as e:

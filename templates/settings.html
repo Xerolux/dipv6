@@ -273,7 +273,7 @@
     // Check wildcard certificate status on page load
     async function checkWildcardStatus() {
         try {
-            const response = await fetch('/api/wildcard/status');
+            const response = await fetch(withPrefix('/api/wildcard/status'));
             const data = await response.json();
             const statusDiv = document.getElementById('wildcard-status');
             const form = document.getElementById('wildcardForm');

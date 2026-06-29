@@ -373,6 +373,14 @@ function showNotification(message, type = 'success') {
     document.querySelector('main').insertBefore(alertDiv, document.querySelector('main').firstChild);
 }
 
+// Application prefix when served behind a sub-path (e.g. /admin). Empty otherwise.
+const APP_PREFIX = "{{ request.script_root }}";
+
+// Prepend the app prefix to root-relative URLs so requests work under /admin
+function withPrefix(url) {
+    return url.startsWith('/') ? APP_PREFIX + url : url;
+}
+
 // API call helper
 async function apiCall(url, method = 'GET', data = null) {
     const options = {
@@ -387,7 +395,7 @@ async function apiCall(url, method = 'GET', data = null) {
         options.body = JSON.stringify(data);
     }
 
-    const response = await fetch(url, options);
+    const response = await fetch(withPrefix(url), options);
     return response.json();
 }
 </script>

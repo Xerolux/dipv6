@@ -119,6 +119,54 @@ class ISPConfigAPI:
             logger.error(f"Error getting zone ID: {result.get('error')}")
             return None
 
+    def list_dns_zones(self) -> List[str]:
+        """List all DNS zones (domains) configured in ISPConfig.
+
+        Returns:
+            List of zone names without trailing dot, e.g. ['blueml.one', 'example.com'].
+            Returns an empty list if listing is not supported or fails.
+        """
+        # ISPConfig's dns_zone_get accepts a filter array; an active filter
+        # returns all active zones as a dict keyed by id (or a list).
+        result = self._call_api('dnszone/get', primary_id=json.dumps({'active': 'y'}))
+
+        # Some installations reject the filter; retry without it
+        if isinstance(result, dict) and 'error' in result:
+            result = self._call_api('dnszone/get', primary_id='')
+
+        items = []
+        if isinstance(result, list):
+            items = result
+        elif isinstance(result, dict) and 'error' not in result:
+            # dict-of-dicts keyed by id, or a single zone dict
+            if all(isinstance(v, dict) for v in result.values()) and result:
+                items = list(result.values())
+            else:
+                items = [result]
+        else:
+            logger.warning(f"Could not list DNS zones: {result}")
+            return []
+
+        zones = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            # 'origin' holds the zone name (often with a trailing dot)
+            name = item.get('origin') or item.get('name')
+            if name:
+                zones.append(name.rstrip('.'))
+
+        # De-duplicate while preserving order
+        seen = set()
+        unique = []
+        for z in zones:
+            if z not in seen:
+                seen.add(z)
+                unique.append(z)
+
+        logger.info(f"Found {len(unique)} DNS zones in ISPConfig")
+        return unique
+
     def get_dns_records(self, zone_id: str) -> List[Dict]:
         """Get all DNS records for a zone
 
