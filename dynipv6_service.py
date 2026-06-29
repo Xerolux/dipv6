@@ -17,6 +17,7 @@ import ipaddress
 from functools import wraps
 from werkzeug.middleware.proxy_fix import ProxyFix
 from ispconfig_api import ISPConfigAPI
+from nginx_updater import update_and_reload_nginx
 
 # Configuration
 CONFIG_DIR = Path("/etc/dynipv6")
@@ -209,7 +210,19 @@ def update_dns():
             record_ipv6 = DNSRecord(config['ipv6_domain'], 'AAAA')
             record_ipv6.set(ipv6, hostname, request.device_name)
             update_ispconfig_dns(config['ipv6_domain'], 'AAAA', ipv6)
-            results['ipv6'] = {"status": "success", "address": ipv6}
+
+            # Update Nginx configuration with new IPv6
+            nginx_updated = update_and_reload_nginx(ipv6, config['ipv6_domain'])
+            if nginx_updated:
+                logger.info(f"Nginx updated with IPv6: {ipv6}")
+            else:
+                logger.warning(f"Nginx update failed for {config['ipv6_domain']}")
+
+            results['ipv6'] = {
+                "status": "success",
+                "address": ipv6,
+                "nginx_updated": nginx_updated
+            }
 
         # Update IPv4
         if ipv4:
