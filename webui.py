@@ -86,15 +86,16 @@ class ConfigManager:
 
     def add_domain(self, domain_name, ipv4_enabled=True, ipv6_enabled=True, use_calculated_ipv6=False, dynamic_dns=None):
         """Add or update domain configuration"""
+        existing = self.config['domains'].get(domain_name, {})
         domain_config = {
             "ipv4_enabled": ipv4_enabled,
             "ipv6_enabled": ipv6_enabled,
             "use_calculated_ipv6": use_calculated_ipv6,
-            "created": datetime.now().isoformat(),
-            "last_update": None,
-            "last_ipv4": None,
-            "last_ipv6": None,
-            "dynamic_dns": dynamic_dns or {}
+            "created": existing.get("created", datetime.now().isoformat()),
+            "last_update": existing.get("last_update"),
+            "last_ipv4": existing.get("last_ipv4"),
+            "last_ipv6": existing.get("last_ipv6"),
+            "dynamic_dns": dynamic_dns if dynamic_dns is not None else existing.get("dynamic_dns", {})
         }
         self.config['domains'][domain_name] = domain_config
         self.save()
@@ -933,15 +934,21 @@ def api_save_dynamic_dns(domain_name):
         return jsonify({'error': 'Domain not found'}), 404
 
     service = data.get('service', 'none')
+    existing_ddns = config_manager.config['domains'][domain_name].get('dynamic_dns', {})
+
+    password = data.get('password', '')
     if service == 'custom':
-        if not all([data.get('hostname'), data.get('username'), data.get('password'), data.get('server')]):
+        if not password and existing_ddns.get('service') == 'custom':
+            password = existing_ddns.get('password', '')
+
+        if not all([data.get('hostname'), data.get('username'), password, data.get('server')]):
             return jsonify({'error': 'All fields required for custom service'}), 400
 
     dynamic_dns_config = {
         'service': service,
         'hostname': data.get('hostname', ''),
         'username': data.get('username', ''),
-        'password': data.get('password', ''),
+        'password': password,
         'server': data.get('server', '')
     }
 
@@ -952,23 +959,34 @@ def api_save_dynamic_dns(domain_name):
     return jsonify({'status': 'success', 'message': f'Dynamic DNS configured for {domain_name}'})
 
 
-@app.route('/api/domain/dynamic-dns/test/<domain_name>', methods=['POST'])
+@app.route('/api/domain/dynamic-dns/<domain_name>/test', methods=['POST'])
 @login_required
 def api_test_dynamic_dns(domain_name):
-    """Test custom dynamic DNS configuration"""
+    """Test custom dynamic DNS configuration with provided values"""
     data = request.get_json()
     config_manager = ConfigManager()
 
     if domain_name not in config_manager.config['domains']:
         return jsonify({'error': 'Domain not found'}), 404
 
-    domain_config = config_manager.config['domains'][domain_name]
-    status = config_manager.get_domain_status(domain_name)
+    service = data.get('service', 'none')
+    if service != 'custom':
+        return jsonify({'status': 'skipped', 'message': 'Only custom service can be tested'}), 400
 
+    test_config = {
+        'service': service,
+        'hostname': data.get('hostname', ''),
+        'username': data.get('username', ''),
+        'password': data.get('password', ''),
+        'server': data.get('server', ''),
+        'dynamic_dns': {}
+    }
+
+    status = config_manager.get_domain_status(domain_name)
     ipv4 = data.get('ipv4') or status.get('ipv4')
     ipv6 = data.get('ipv6') or status.get('ipv6')
 
-    result = send_custom_ddns_update(domain_config, ipv4=ipv4, ipv6=ipv6)
+    result = send_custom_ddns_update(test_config, ipv4=ipv4, ipv6=ipv6)
     logger.info(f"DDNS test for {domain_name} by {session['username']}: {result}")
 
     return jsonify(result)

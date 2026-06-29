@@ -338,6 +338,9 @@
             </div>
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-warning" id="testDDNSBtn" onclick="testDynamicDNS()" style="display:none;">
+                    <i class="fas fa-flask"></i> Test
+                </button>
                 <button type="button" class="btn btn-primary" onclick="saveDynamicDNS()">
                     <i class="fas fa-save"></i> Create
                 </button>
@@ -351,6 +354,7 @@
 {% block extra_js %}
 <script>
     let currentDomain = null;
+    let dynamicDNSModalInstance = null;
 
     // Check certificate status for each domain on page load
     async function checkCertificateStatus() {
@@ -531,7 +535,9 @@
     function updateDDNSServiceFields() {
         const service = document.getElementById('ddnsService').value;
         const customFields = document.getElementById('customDDNSFields');
+        const testBtn = document.getElementById('testDDNSBtn');
         customFields.style.display = service === 'custom' ? 'block' : 'none';
+        testBtn.style.display = service === 'custom' ? 'inline-block' : 'none';
     }
 
     async function openDynamicDNSModal(domain) {
@@ -544,11 +550,26 @@
             document.getElementById('ddnsService').value = ddnsConfig.service || 'none';
             document.getElementById('ddnsHostname').value = ddnsConfig.hostname || '';
             document.getElementById('ddnsUsername').value = ddnsConfig.username || '';
-            document.getElementById('ddnsPassword').value = '';
+
+            const passwordInput = document.getElementById('ddnsPassword');
+            passwordInput.value = '';
+            if (ddnsConfig.has_password) {
+                passwordInput.placeholder = '•••••••• (leave blank to keep existing)';
+                passwordInput.dataset.hasPassword = 'true';
+            } else {
+                passwordInput.placeholder = 'API password or token';
+                passwordInput.dataset.hasPassword = 'false';
+            }
+
             document.getElementById('ddnsServer').value = ddnsConfig.server || '';
 
             updateDDNSServiceFields();
-            new bootstrap.Modal(document.getElementById('dynamicDNSModal')).show();
+
+            const modalElem = document.getElementById('dynamicDNSModal');
+            if (!dynamicDNSModalInstance) {
+                dynamicDNSModalInstance = new bootstrap.Modal(modalElem);
+            }
+            dynamicDNSModalInstance.show();
         } catch (error) {
             showNotification('Error loading DDNS config: ' + error, 'danger');
         }
@@ -565,8 +586,9 @@
             const username = document.getElementById('ddnsUsername').value.trim();
             const password = document.getElementById('ddnsPassword').value.trim();
             const server = document.getElementById('ddnsServer').value.trim();
+            const hasPassword = document.getElementById('ddnsPassword').dataset.hasPassword === 'true';
 
-            if (!hostname || !username || !password || !server) {
+            if (!hostname || !username || (!password && !hasPassword) || !server) {
                 showNotification('All fields are required for custom service', 'danger');
                 return;
             }
@@ -579,11 +601,55 @@
 
             if (response.status === 'success') {
                 showNotification('Dynamic DNS configured successfully!', 'success');
-                bootstrap.Modal.getInstance(document.getElementById('dynamicDNSModal')).hide();
+                if (dynamicDNSModalInstance) {
+                    dynamicDNSModalInstance.hide();
+                }
                 setTimeout(() => location.reload(), 1000);
             }
         } catch (error) {
             showNotification('Error saving DDNS config: ' + error, 'danger');
+        }
+    }
+
+    async function testDynamicDNS() {
+        const domain = document.getElementById('ddnsDomainName').value;
+        const service = document.getElementById('ddnsService').value;
+
+        if (service !== 'custom') {
+            showNotification('Only custom service can be tested', 'warning');
+            return;
+        }
+
+        const hostname = document.getElementById('ddnsHostname').value.trim();
+        const username = document.getElementById('ddnsUsername').value.trim();
+        const password = document.getElementById('ddnsPassword').value.trim();
+        const server = document.getElementById('ddnsServer').value.trim();
+
+        if (!hostname || !username || !password || !server) {
+            showNotification('All fields are required to test', 'danger');
+            return;
+        }
+
+        const btn = event.target;
+        const origText = btn.innerHTML;
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Testing...';
+
+        try {
+            const response = await apiCall(`/api/domain/dynamic-dns/${domain}/test`, 'POST', {
+                service, hostname, username, password, server
+            });
+
+            if (response.status === 'success') {
+                showNotification('✅ DDNS test successful!', 'success');
+            } else {
+                showNotification(`❌ Test failed: ${response.message}`, 'danger');
+            }
+        } catch (error) {
+            showNotification('Error testing DDNS: ' + error, 'danger');
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = origText;
         }
     }
 </script>
