@@ -58,7 +58,8 @@ DEFAULT_CONFIG = {
     "ssl_cert": "/etc/letsencrypt/live/ipv6.xerolux.net/fullchain.pem",
     "ssl_key": "/etc/letsencrypt/live/ipv6.xerolux.net/privkey.pem",
     "port": 5000,
-    "host": "127.0.0.1"
+    "host": "127.0.0.1",
+    "nginx_update_enabled": False
 }
 
 def load_config():
@@ -211,12 +212,14 @@ def update_dns():
             record_ipv6.set(ipv6, hostname, request.device_name)
             update_ispconfig_dns(config['ipv6_domain'], 'AAAA', ipv6)
 
-            # Update Nginx configuration with new IPv6
-            nginx_updated = update_and_reload_nginx(ipv6, config['ipv6_domain'])
-            if nginx_updated:
-                logger.info(f"Nginx updated with IPv6: {ipv6}")
-            else:
-                logger.warning(f"Nginx update failed for {config['ipv6_domain']}")
+            # Update Nginx configuration with new IPv6 (if enabled)
+            nginx_updated = False
+            if config.get('nginx_update_enabled', False):
+                nginx_updated = update_and_reload_nginx(ipv6, config['ipv6_domain'])
+                if nginx_updated:
+                    logger.info(f"Nginx updated with IPv6: {ipv6}")
+                else:
+                    logger.warning(f"Nginx update failed for {config['ipv6_domain']}")
 
             results['ipv6'] = {
                 "status": "success",
