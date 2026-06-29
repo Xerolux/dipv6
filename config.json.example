@@ -1,6 +1,6 @@
 {
-  "ipv6_domain": "ipv6.xerolux.net",
-  "ipv4_domain": "ipv4.xerolux.net",
+  "ipv6_domain": "home.blueml.one",
+  "ipv4_domain": "home-ipv4.blueml.one",
   "ispconfig_url": "https://your-ispconfig-server.com:8080",
   "ispconfig_username": "admin",
   "ispconfig_password": "your-ispconfig-password",
@@ -9,8 +9,9 @@
     "your-secret-token-here": "UniFi-Device-Name",
     "another-token": "Another-Device"
   },
-  "ssl_cert": "/etc/letsencrypt/live/ipv6.xerolux.net/fullchain.pem",
-  "ssl_key": "/etc/letsencrypt/live/ipv6.xerolux.net/privkey.pem",
+  "ssl_cert": "/etc/letsencrypt/live/dyn.blueml.one/fullchain.pem",
+  "ssl_key": "/etc/letsencrypt/live/dyn.blueml.one/privkey.pem",
   "port": 5000,
-  "host": "127.0.0.1"
+  "host": "127.0.0.1",
+  "nginx_update_enabled": false
 }
