@@ -31,6 +31,25 @@ STATIC_DIR = Path(__file__).parent / "static"
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+class PrefixMiddleware:
+    """Honor X-Forwarded-Prefix so the app can be served behind a sub-path
+    (e.g. https://dyn.blueml.one/admin). Sets SCRIPT_NAME so url_for() and
+    request.script_root produce correctly prefixed links."""
+
+    def __init__(self, wsgi_app):
+        self.wsgi_app = wsgi_app
+
+    def __call__(self, environ, start_response):
+        prefix = environ.get('HTTP_X_FORWARDED_PREFIX', '')
+        if prefix:
+            prefix = '/' + prefix.strip('/')
+            environ['SCRIPT_NAME'] = prefix
+            path = environ.get('PATH_INFO', '')
+            if path.startswith(prefix):
+                environ['PATH_INFO'] = path[len(prefix):] or '/'
+        return self.wsgi_app(environ, start_response)
+
+
 # Flask app
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', secrets.token_hex(32))
@@ -38,6 +57,7 @@ app.config['SESSION_COOKIE_SECURE'] = True
 app.config['SESSION_COOKIE_HTTPONLY'] = True
 app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(hours=8)
+app.wsgi_app = PrefixMiddleware(app.wsgi_app)
 
 # Admin credentials file
 ADMIN_FILE = CONFIG_DIR / "admin.json"

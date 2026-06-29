@@ -376,7 +376,7 @@
             if (!domainName) return;
 
             try {
-                const response = await fetch(`/api/certificate-status/${domainName}`);
+                const response = await fetch(withPrefix(`/api/certificate-status/${domainName}`));
                 const data = await response.json();
                 const badge = document.getElementById(`cert-badge-${index + 1}`);
                 const btn = document.getElementById(`cert-btn-${index + 1}`);
