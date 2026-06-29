@@ -18,6 +18,7 @@ from flask import Flask, render_template, request, jsonify, session, redirect, u
 from werkzeug.security import generate_password_hash, check_password_hash
 import jwt
 from backup_manager import BackupManager
+from custom_ddns import send_custom_ddns_update
 
 # Configuration paths
 CONFIG_DIR = Path("/etc/dynipv6")
@@ -83,17 +84,19 @@ class ConfigManager:
             json.dump(self.config, f, indent=2)
         logger.info(f"Configuration saved to {self.config_file}")
 
-    def add_domain(self, domain_name, ipv4_enabled=True, ipv6_enabled=True, use_calculated_ipv6=False):
+    def add_domain(self, domain_name, ipv4_enabled=True, ipv6_enabled=True, use_calculated_ipv6=False, dynamic_dns=None):
         """Add or update domain configuration"""
-        self.config['domains'][domain_name] = {
+        domain_config = {
             "ipv4_enabled": ipv4_enabled,
             "ipv6_enabled": ipv6_enabled,
             "use_calculated_ipv6": use_calculated_ipv6,
             "created": datetime.now().isoformat(),
             "last_update": None,
             "last_ipv4": None,
-            "last_ipv6": None
+            "last_ipv6": None,
+            "dynamic_dns": dynamic_dns or {}
         }
+        self.config['domains'][domain_name] = domain_config
         self.save()
         logger.info(f"Domain added/updated: {domain_name}")
 
@@ -890,6 +893,85 @@ def api_restore_backup(file_type, backup_index):
     except Exception as e:
         logger.error(f"Error restoring backup: {e}")
         return jsonify({'error': str(e)}), 500
+
+
+@app.route('/api/domain/dynamic-dns/<domain_name>', methods=['GET'])
+@login_required
+def api_get_dynamic_dns(domain_name):
+    """Get dynamic DNS configuration for domain"""
+    config_manager = ConfigManager()
+
+    if domain_name not in config_manager.config['domains']:
+        return jsonify({'error': 'Domain not found'}), 404
+
+    domain_config = config_manager.config['domains'][domain_name]
+    dynamic_dns = domain_config.get('dynamic_dns', {})
+
+    # Don't return password in plain text
+    result = {
+        'status': 'success',
+        'domain': domain_name,
+        'dynamic_dns': {
+            'service': dynamic_dns.get('service', 'none'),
+            'hostname': dynamic_dns.get('hostname', ''),
+            'username': dynamic_dns.get('username', ''),
+            'server': dynamic_dns.get('server', ''),
+            'has_password': bool(dynamic_dns.get('password'))
+        }
+    }
+    return jsonify(result)
+
+
+@app.route('/api/domain/dynamic-dns/<domain_name>', methods=['POST'])
+@login_required
+def api_save_dynamic_dns(domain_name):
+    """Save dynamic DNS configuration for domain"""
+    data = request.get_json()
+    config_manager = ConfigManager()
+
+    if domain_name not in config_manager.config['domains']:
+        return jsonify({'error': 'Domain not found'}), 404
+
+    service = data.get('service', 'none')
+    if service == 'custom':
+        if not all([data.get('hostname'), data.get('username'), data.get('password'), data.get('server')]):
+            return jsonify({'error': 'All fields required for custom service'}), 400
+
+    dynamic_dns_config = {
+        'service': service,
+        'hostname': data.get('hostname', ''),
+        'username': data.get('username', ''),
+        'password': data.get('password', ''),
+        'server': data.get('server', '')
+    }
+
+    config_manager.config['domains'][domain_name]['dynamic_dns'] = dynamic_dns_config
+    config_manager.save()
+
+    logger.info(f"Dynamic DNS configuration updated for {domain_name} by {session['username']}")
+    return jsonify({'status': 'success', 'message': f'Dynamic DNS configured for {domain_name}'})
+
+
+@app.route('/api/domain/dynamic-dns/test/<domain_name>', methods=['POST'])
+@login_required
+def api_test_dynamic_dns(domain_name):
+    """Test custom dynamic DNS configuration"""
+    data = request.get_json()
+    config_manager = ConfigManager()
+
+    if domain_name not in config_manager.config['domains']:
+        return jsonify({'error': 'Domain not found'}), 404
+
+    domain_config = config_manager.config['domains'][domain_name]
+    status = config_manager.get_domain_status(domain_name)
+
+    ipv4 = data.get('ipv4') or status.get('ipv4')
+    ipv6 = data.get('ipv6') or status.get('ipv6')
+
+    result = send_custom_ddns_update(domain_config, ipv4=ipv4, ipv6=ipv6)
+    logger.info(f"DDNS test for {domain_name} by {session['username']}: {result}")
+
+    return jsonify(result)
 
 
 @app.route('/api/status')

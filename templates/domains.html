@@ -118,6 +118,10 @@
                                                 onclick="openSetIPModal('{{ domain.domain }}', '{{ domain.ipv4 or '' }}', '{{ domain.ipv6 or '' }}')">
                                             <i class="fas fa-network-wired"></i> Set IP
                                         </button>
+                                        <button class="btn btn-sm btn-outline-info"
+                                                onclick="openDynamicDNSModal('{{ domain.domain }}')">
+                                            <i class="fas fa-globe"></i> DDNS
+                                        </button>
                                         <button class="btn btn-sm btn-outline-primary"
                                                 onclick="editDomain('{{ domain.domain }}', {{ domain.ipv4_enabled|lower }}, {{ domain.ipv6_enabled|lower }}, {{ domain.use_calculated_ipv6|lower }})">
                                             <i class="fas fa-edit"></i> Edit
@@ -272,6 +276,70 @@
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
                 <button type="button" class="btn btn-success" onclick="setIPManual()">
                     <i class="fas fa-save"></i> Save IP Address
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Dynamic DNS Modal -->
+<div class="modal fade" id="dynamicDNSModal" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title">
+                    <i class="fas fa-globe"></i> Dynamic DNS
+                </h5>
+                <button type="button" class="btn-close modal-close" data-bs-dismiss="modal"></button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group mb-3">
+                    <label for="ddnsDomainName" class="form-label">Domain</label>
+                    <input type="text" class="form-control" id="ddnsDomainName" disabled>
+                </div>
+                <div class="form-group mb-3">
+                    <label for="ddnsService" class="form-label">Service</label>
+                    <select class="form-select" id="ddnsService" onchange="updateDDNSServiceFields()">
+                        <option value="none">None (Use ISPConfig)</option>
+                        <option value="custom">Custom</option>
+                    </select>
+                </div>
+
+                <div id="customDDNSFields" style="display: none;">
+                    <div class="form-group mb-3">
+                        <label for="ddnsHostname" class="form-label">Hostname</label>
+                        <input type="text" class="form-control" id="ddnsHostname"
+                               placeholder="e.g., example.com">
+                        <small class="form-text text-muted">Domain name to update</small>
+                    </div>
+                    <div class="form-group mb-3">
+                        <label for="ddnsUsername" class="form-label">Username</label>
+                        <input type="text" class="form-control" id="ddnsUsername"
+                               placeholder="API username or account">
+                    </div>
+                    <div class="form-group mb-3">
+                        <label for="ddnsPassword" class="form-label">Password</label>
+                        <input type="password" class="form-control" id="ddnsPassword"
+                               placeholder="API password or token">
+                        <small class="form-text text-muted">Stored securely, never transmitted to client</small>
+                    </div>
+                    <div class="form-group mb-3">
+                        <label for="ddnsServer" class="form-label">Server</label>
+                        <input type="text" class="form-control" id="ddnsServer"
+                               placeholder="e.g., https://api.provider.com/update">
+                        <small class="form-text text-muted">API endpoint URL</small>
+                    </div>
+                </div>
+
+                <div class="alert alert-info small">
+                    <i class="fas fa-info-circle"></i>
+                    <strong>Custom Service:</strong> Sends update requests to your specified server endpoint
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+                <button type="button" class="btn btn-primary" onclick="saveDynamicDNS()">
+                    <i class="fas fa-save"></i> Create
                 </button>
             </div>
         </div>
@@ -457,6 +525,65 @@
             }
         } catch (error) {
             showNotification('Error setting IP address: ' + error, 'danger');
+        }
+    }
+
+    function updateDDNSServiceFields() {
+        const service = document.getElementById('ddnsService').value;
+        const customFields = document.getElementById('customDDNSFields');
+        customFields.style.display = service === 'custom' ? 'block' : 'none';
+    }
+
+    async function openDynamicDNSModal(domain) {
+        document.getElementById('ddnsDomainName').value = domain;
+
+        try {
+            const response = await apiCall(`/api/domain/dynamic-dns/${domain}`, 'GET');
+            const ddnsConfig = response.dynamic_dns;
+
+            document.getElementById('ddnsService').value = ddnsConfig.service || 'none';
+            document.getElementById('ddnsHostname').value = ddnsConfig.hostname || '';
+            document.getElementById('ddnsUsername').value = ddnsConfig.username || '';
+            document.getElementById('ddnsPassword').value = '';
+            document.getElementById('ddnsServer').value = ddnsConfig.server || '';
+
+            updateDDNSServiceFields();
+            new bootstrap.Modal(document.getElementById('dynamicDNSModal')).show();
+        } catch (error) {
+            showNotification('Error loading DDNS config: ' + error, 'danger');
+        }
+    }
+
+    async function saveDynamicDNS() {
+        const domain = document.getElementById('ddnsDomainName').value;
+        const service = document.getElementById('ddnsService').value;
+
+        let ddnsData = { service };
+
+        if (service === 'custom') {
+            const hostname = document.getElementById('ddnsHostname').value.trim();
+            const username = document.getElementById('ddnsUsername').value.trim();
+            const password = document.getElementById('ddnsPassword').value.trim();
+            const server = document.getElementById('ddnsServer').value.trim();
+
+            if (!hostname || !username || !password || !server) {
+                showNotification('All fields are required for custom service', 'danger');
+                return;
+            }
+
+            ddnsData = { service, hostname, username, password, server };
+        }
+
+        try {
+            const response = await apiCall(`/api/domain/dynamic-dns/${domain}`, 'POST', ddnsData);
+
+            if (response.status === 'success') {
+                showNotification('Dynamic DNS configured successfully!', 'success');
+                bootstrap.Modal.getInstance(document.getElementById('dynamicDNSModal')).hide();
+                setTimeout(() => location.reload(), 1000);
+            }
+        } catch (error) {
+            showNotification('Error saving DDNS config: ' + error, 'danger');
         }
     }
 </script>
