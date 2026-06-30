@@ -1,0 +1,28 @@
+# dynipv6 nginx template.
+#
+# The service renders this file on every IP change and reloads nginx.
+# It substitutes four placeholders (double curly braces):
+#   DOMAIN -> the domain from config.json
+#   TARGET -> ready-to-use proxy_pass address: bracketed IPv6 if known,
+#             otherwise IPv4 (e.g. "[2001:db8::1]" or "203.0.113.5")
+#   IPV4   -> the client's current IPv4 (empty in ipv6-only mode)
+#   IPV6   -> the client's current IPv6 (empty in ipv4-only mode)
+#
+# This example reverse-proxies the domain to whatever IP the client last
+# reported. Adjust the proxy_pass target / ports to your needs. For an
+# ipv4-only or ipv6-only setup, just delete the block you don't need.
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{DOMAIN}};
+
+    location / {
+        # TARGET prefers IPv6 if available, otherwise falls back to IPv4.
+        proxy_pass http://{{TARGET}}:80;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+}

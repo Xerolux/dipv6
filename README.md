@@ -1,371 +1,125 @@
-# Dynamic IPv6/IPv4 DDNS Service
+# dynipv6
 
-🌐 **Self-hosted Dynamic DNS with IPv4/IPv6 dual-domain support**
+A minimal, self-hosted **Dynamic DNS** service. No web interface, no Docker, no
+database — just one Python script, one config file and a systemd service.
 
-A production-ready DDNS service for UniFi networks integrated with ISPConfig for automatic DNS record management. Supports separate IPv4 and IPv6 domains with flexible configuration.
+A client (router, UniFi, ddclient, or a simple `cron` + `curl`) authenticates
+with a username and password and reports its current IP address. The service
+then:
 
-## Features
+1. writes the IP into an **nginx config** (rendered from a template) and reloads
+   nginx, so your reverse proxy always points at the client, and
+2. **optionally** updates the matching `A`/`AAAA` record in **ISPConfig**.
 
-| Feature | Status | Details |
-|---------|--------|---------|
-| **IPv4 DDNS** | ✅ | Automatic A record updates via ISPConfig API |
-| **IPv6 DDNS** | ✅ | Automatic AAAA record updates via ISPConfig API |
-| **Dual Domains** | ✅ | Separate IPv4/IPv6 domains or single combined domain |
-| **UniFi Integration** | ✅ | Drop-in replacement for dynv6.com custom DDNS |
-| **ISPConfig API** | ✅ | Full integration with retry logic & error handling |
-| **Web Admin Panel** | ✅ | Secure management interface with token & domain management |
-| **HTTPS/TLS** | ✅ | Modern TLS 1.2/1.3 with Let's Encrypt certificates |
-| **Rate Limiting** | ✅ | 10 req/s API, 30 req/s Web-UI via Nginx |
-| **Health Monitoring** | ✅ | 24/7 health checks with auto-restart |
-| **Session Security** | ✅ | 8-hour timeout with bcrypt password hashing |
-| **Encryption** | ✅ | AES-128 Fernet encryption for credentials |
-| **Docker Support** | ✅ | Production Docker Compose stack included |
-| **Systemd Support** | ✅ | Bare metal systemd service files provided |
+Works with **IPv4 only**, **IPv6 only**, or **both** — set `mode` in the config.
 
-## Quick Start
-
-### Docker (Recommended)
+## Install
 
 ```bash
-# 1. Clone and setup
-git clone https://github.com/your-org/dipv6.git
+git clone https://github.com/xerolux/dipv6.git
 cd dipv6
-
-# 2. Create directories
-mkdir -p config data
-
-# 3. Configure (see PRODUCTION.md)
-cp config.json.example config/config.json
-# Edit config/config.json with your ISPConfig details and domains
-
-# 4. Setup SSL certificates
-sudo certbot certonly --standalone \
-  -d ipv6.example.com \
-  -d ipv4.example.com \
-  -d ip.example.com
-
-# 5. Start services
-docker-compose -f docker-compose.prod.yml up -d
-
-# 6. Verify
-curl https://ipv6.example.com/api/health
-```
-
-### Bare Metal (Ubuntu/Debian)
-
-```bash
-# 1. Clone
-git clone https://github.com/your-org/dipv6.git
-cd dipv6
-
-# 2. Run installer
-chmod +x install.sh
-./install.sh
-
-# 3. Configure
+sudo ./install.sh
 sudo nano /etc/dynipv6/config.json
-# Add your ISPConfig credentials and domains
-
-# 4. Setup SSL
-sudo certbot certonly --standalone \
-  -d ipv6.example.com \
-  -d ipv4.example.com \
-  -d ip.example.com
-
-# 5. Start services
-sudo systemctl start dynipv6
-sudo systemctl start dynipv6-webui
-sudo systemctl enable dynipv6 dynipv6-webui
-
-# 6. Verify
-sudo systemctl status dynipv6
-curl http://localhost:5000/api/health
+sudo systemctl enable --now dynipv6
 ```
-
-## Documentation
-
-- **[DEPLOYMENT.md](DEPLOYMENT.md)** - Bare metal installation & reverse proxy setup
-- **[PRODUCTION.md](PRODUCTION.md)** - Docker Compose deployment & security hardening
-- **[API.md](API.md)** - Complete API reference with examples
-- **[ISPCONFIG_SETUP.md](ISPCONFIG_SETUP.md)** - ISPConfig integration guide
-- **[WEBUI_SETUP.md](WEBUI_SETUP.md)** - Web admin panel setup
-- **[UNIFI_SETUP.md](UNIFI_SETUP.md)** - UniFi DDNS configuration
-- **[ANLEITUNG.md](ANLEITUNG.md)** - German language installation guide
-
-## Architecture
-
-```
-                    Internet
-                       ↑
-         ┌─────────────────────────────┐
-         │   Let's Encrypt Certs       │
-         │  (IPv6, IPv4, Admin domains)│
-         └──────────┬──────────────────┘
-                    │
-         ┌──────────▼────────────────┐
-         │  Nginx Reverse Proxy      │
-         │  (443 SSL/TLS)            │
-         │  (80 HTTP redirect)       │
-         └──────────┬────────────────┘
-                    │
-         ┌──────────┴────────────────────┐
-         │                               │
-    ┌────▼────────┐            ┌────────▼──────┐
-    │ DDNS API    │            │  Web Admin UI │
-    │ (Port 5000) │            │  (Port 5001)  │
-    └────┬────────┘            └────────┬──────┘
-         │                              │
-    ┌────▼──────────────────────────────▼──┐
-    │      ISPConfig API                    │
-    │  (External ISPConfig Server)          │
-    └───────────────────────────────────────┘
-```
-
-## Security Highlights
-
-### Encryption ✅
-- **ISPConfig passwords**: Encrypted with AES-128 Fernet
-- **Admin passwords**: Hashed with Werkzeug bcrypt
-- **API tokens**: Cryptographically secure random generation
-- **HTTPS/TLS**: All traffic encrypted (TLS 1.2/1.3)
-
-### Access Control ✅
-- **No root services**: Run as www-data user
-- **File permissions**: 600 for configs, 700 for secrets
-- **Rate limiting**: 10 req/s API, 30 req/s Web-UI
-- **Session timeout**: 8-hour maximum session lifetime
-- **CORS**: Only same-origin requests allowed
-
-### Reliability ✅
-- **Auto-restart**: Failed services restart automatically
-- **Health checks**: Every 30 seconds with 3-retry threshold
-- **ISPConfig retries**: 3 attempts with exponential backoff
-- **Graceful shutdown**: 30-second timeout for clean exits
-- **Data persistence**: Docker volumes survive restarts
-
-## API Endpoints
-
-### Update DDNS Record
-```bash
-# IPv6 update
-curl -X POST https://ipv6.example.com/api/update \
-  -d "token=YOUR_TOKEN&ipv6=2001:db8::1"
-
-# IPv4 update
-curl -X POST https://ipv4.example.com/api/update \
-  -d "token=YOUR_TOKEN&ipv4=192.0.2.1"
-
-# Both (if configured on single domain)
-curl -X POST https://ip.example.com/api/update \
-  -d "token=YOUR_TOKEN&ipv4=192.0.2.1&ipv6=2001:db8::1"
-```
-
-### Get Status
-```bash
-curl https://ipv6.example.com/api/status
-```
-
-### Health Check
-```bash
-curl https://ipv6.example.com/api/health
-```
-
-See [API.md](API.md) for complete reference.
-
-## Web Admin Panel
-
-Access at `https://ip.example.com`
-
-**Features:**
-- Dashboard with service statistics
-- Domain management (add/edit/delete)
-- Token creation and management
-- ISPConfig credential configuration
-- Admin password change
-- System health monitoring
-
-Default credentials are set during initial setup.
-
-## UniFi Integration
-
-Configure custom DDNS in UniFi with this service:
-
-1. Go to UniFi Network → Settings → Internet → Dynamic DNS
-2. Select **Custom** provider
-3. **Hostname**: your-domain.example.com
-4. **Username**: your-api-token
-5. **Password**: (leave empty)
-6. **Server**: ipv6.example.com or ipv4.example.com
-
-See [UNIFI_SETUP.md](UNIFI_SETUP.md) for detailed screenshots.
-
-## ISPConfig Integration
-
-Requires ISPConfig 3.2+ with:
-- API enabled
-- Remote API access configured
-- Admin or reseller account
-
-See [ISPCONFIG_SETUP.md](ISPCONFIG_SETUP.md) for setup instructions.
-
-## Monitoring
-
-The service provides built-in health monitoring:
-
-```bash
-# Check service health
-curl https://ipv6.example.com/api/health
-
-# View system stats
-curl https://ipv6.example.com/api/status
-
-# Test ISPConfig connection (requires token)
-curl -X GET "https://ipv6.example.com/api/ispconfig-test?token=YOUR_TOKEN"
-```
-
-Docker-based deployment includes optional Prometheus + Grafana stack.
-
-## Performance
-
-- **Throughput**: 100+ DDNS updates/second
-- **Latency**: <500ms API response time
-- **CPU**: <5% idle, <20% under load
-- **Memory**: ~50MB base + 20MB per worker
-- **Concurrent connections**: 1000+ via Nginx
-
-## Use Cases
-
-✅ **Residential ISP** - Dynamic IPv6/IPv4 with ISPConfig DNS management
-✅ **UniFi Networks** - Automatic WAN IP tracking via custom DDNS
-✅ **Multi-domain** - Separate IPv4/IPv6 endpoints or combined
-✅ **High Availability** - Docker Compose with auto-restart & health checks
-✅ **Self-hosted** - Full control over DDNS and DNS records
-✅ **Privacy-focused** - Keep your IP data on your own servers
-
-## Requirements
-
-### Bare Metal
-- Ubuntu 20.04+ or Debian 11+
-- Python 3.9+
-- Nginx or Apache (reverse proxy)
-- Let's Encrypt / certbot
-- ISPConfig 3.2+ (remote API enabled)
-
-### Docker
-- Docker 20.10+
-- Docker Compose 1.29+
-- Let's Encrypt certificates for domains
 
 ## Configuration
 
-Minimal `config.json` example:
+Everything lives in `/etc/dynipv6/config.json`:
 
 ```json
 {
-  "ipv6_domain": "ipv6.example.com",
-  "ipv4_domain": "ipv4.example.com",
-  "ispconfig_url": "https://ispconfig.example.com:8080",
-  "ispconfig_username": "admin",
-  "ispconfig_password": "YOUR_PASSWORD",
-  "ispconfig_client_id": "0",
-  "domains": {
-    "ipv6.example.com": {
-      "ipv4_enabled": false,
-      "ipv6_enabled": true
-    },
-    "ipv4.example.com": {
-      "ipv4_enabled": true,
-      "ipv6_enabled": false
-    }
+  "mode": "both",
+  "domain": "home.example.com",
+  "username": "myuser",
+  "password": "change-me",
+
+  "listen_host": "127.0.0.1",
+  "listen_port": 8080,
+
+  "nginx": {
+    "enabled": true,
+    "template": "/etc/dynipv6/nginx.conf.template",
+    "output": "/etc/nginx/sites-enabled/dynipv6.conf",
+    "reload_command": "systemctl reload nginx"
   },
-  "auth_tokens": {
-    "your-initial-token": "Setup-Token"
+
+  "ispconfig": {
+    "enabled": false,
+    "url": "https://ispconfig.example.com:8080",
+    "username": "admin",
+    "password": "change-me",
+    "client_id": "0",
+    "verify_ssl": false
   }
 }
 ```
 
-See [PRODUCTION.md](PRODUCTION.md) for complete configuration reference.
+| Key | Meaning |
+|-----|---------|
+| `mode` | `ipv4`, `ipv6` or `both` — which address families to accept |
+| `domain` | the hostname this service manages |
+| `username` / `password` | credentials the client uses to authenticate |
+| `listen_host` / `listen_port` | where the service listens |
+| `nginx.enabled` | write/reload an nginx config on every IP change |
+| `nginx.template` | template file (see `nginx.conf.template`) |
+| `nginx.output` | where the rendered config is written |
+| `nginx.reload_command` | command run after writing the config |
+| `ispconfig.enabled` | also update DNS records in ISPConfig (optional) |
 
-## Troubleshooting
+Set `nginx.enabled` to `false` if you only want ISPConfig DNS, or
+`ispconfig.enabled` to `false` if you only want the nginx file. You can use
+both, either, or neither.
 
-### Service won't start
+### nginx template
+
+`nginx.conf.template` is rendered on every IP change. Placeholders:
+
+- `{{DOMAIN}}` → `domain` from the config
+- `{{IPV4}}` → the client's current IPv4 (empty in `ipv6`-only mode)
+- `{{IPV6}}` → the client's current IPv6 (empty in `ipv4`-only mode)
+
+## Updating your IP
+
+Send the IP (or let the service auto-detect it from the connection):
+
 ```bash
-# Check logs
-sudo journalctl -u dynipv6 -n 50
+# explicit IP
+curl "http://USER:PASS@your-server:8080/update?ip=2001:db8::1"
 
-# Check configuration
-sudo cat /etc/dynipv6/config.json | python3 -m json.tool
-
-# Verify permissions
-ls -la /etc/dynipv6/
+# auto-detect from the source address of the request
+curl "http://USER:PASS@your-server:8080/update"
 ```
 
-### ISPConfig connection fails
-- Verify ISPConfig URL is accessible
-- Confirm API is enabled in ISPConfig admin panel
-- Check credentials match exactly
-- Test connection via Web-UI → Settings → Test ISPConfig
+The endpoint is also reachable at `/nic/update` and accepts the usual DynDNS
+parameter names (`myip`, `ipv4`, `ipv6`, `ipv6prefix`, ...), so **ddclient** and
+**UniFi** "custom DDNS" clients work out of the box.
 
-### DDNS updates not working
-```bash
-# Check token is valid
-curl -X GET "https://ipv6.example.com/api/status?token=YOUR_TOKEN"
+### UniFi
 
-# View recent logs
-docker-compose logs -f ddns-api
+- Service / Provider: **Custom**
+- Hostname: your domain
+- Username / Password: as in the config
+- Server: `your-server:8080/nic/update?ip=%i&hostname=%h`
 
-# Test update manually
-curl -X POST https://ipv6.example.com/api/update \
-  -d "token=YOUR_TOKEN&ipv6=2001:db8::1"
-```
+### Endpoints
 
-See [DEPLOYMENT.md](DEPLOYMENT.md) for more troubleshooting steps.
+| Endpoint | Auth | Purpose |
+|----------|------|---------|
+| `GET/POST /update`, `/nic/update` | yes | report an IP and update nginx/ISPConfig |
+| `GET /status` | yes | show the current stored IPs |
+| `GET /health` | no | liveness check |
 
-## Comparison with Alternatives
+## How it runs
 
-| Feature | dipv6 | dynv6.com | Route53 | Cloudflare |
-|---------|-------|-----------|---------|-----------|
-| Self-hosted | ✅ | ❌ | ❌ | ❌ |
-| IPv6 support | ✅ | ✅ | ✅ | ✅ |
-| No cloud dependency | ✅ | ❌ | ❌ | ❌ |
-| ISPConfig integration | ✅ | ❌ | ❌ | ❌ |
-| Free to run | ✅ | ❌ (paid) | ❌ (paid) | ✅ (free tier) |
-| UniFi compatible | ✅ | ✅ | ❌ | ⚠️ (limited) |
-| HTTPS included | ✅ | ✅ | ✅ | ✅ |
-| Web UI | ✅ | ✅ | ✅ | ✅ |
+- Service script: `/opt/dynipv6/dynipv6.py`
+- Config: `/etc/dynipv6/config.json`
+- State (last seen IPs): `/var/lib/dynipv6/state.json`
+- systemd unit: `dynipv6.service` (`journalctl -u dynipv6 -f` for logs)
+
+The service runs as root because it writes the nginx config and reloads nginx.
+If you disable the nginx feature you can run it as an unprivileged user instead.
 
 ## License
 
-MIT License - See LICENSE file for details
-
-## Support
-
-For issues, questions, or contributions:
-
-1. Check relevant documentation file
-2. Review service logs
-3. Test ISPConfig connectivity
-4. Open an issue on GitHub
-
-### Health Check Command
-```bash
-# Full service health check
-bash test.sh
-```
-
-## Changelog
-
-### v1.0.0 (Initial Release)
-- IPv4/IPv6 DDNS support
-- ISPConfig API integration
-- Web admin panel
-- Docker Compose deployment
-- Systemd bare metal support
-- Comprehensive documentation
-- UniFi integration
-- Token-based authentication
-- Health monitoring
-
----
-
-**Built for reliability, security, and ease of deployment.**
+MIT — see [LICENSE](LICENSE).
