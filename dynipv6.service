@@ -1,36 +1,25 @@
 [Unit]
-Description=Dynamic IPv6/IPv4 DDNS Service
-Documentation=file:///usr/share/doc/dynipv6/README.md
+Description=dynipv6 - minimal self-hosted Dynamic DNS service
 After=network.target
 
 [Service]
 Type=simple
-User=www-data
-Group=www-data
-WorkingDirectory=/var/lib/dynipv6
-
-# Start service
-ExecStart=/opt/dynipv6/venv/bin/python3 /opt/dynipv6/dynipv6_service.py
-
-# Restart policy
+# Runs as root because it writes the nginx config and reloads nginx.
+# If you don't use the nginx feature, you can run it as an unprivileged user.
+ExecStart=/opt/dynipv6/venv/bin/python3 /opt/dynipv6/dynipv6.py
 Restart=always
 RestartSec=10
 
-# Security settings
+# Hardening: only these paths are writable.
 NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=yes
-ReadWritePaths=/var/lib/dynipv6 /var/log/dynipv6 /etc/dynipv6
+ReadWritePaths=/var/lib/dynipv6 /etc/nginx
 
-# Logging
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=dynipv6
-
-# Resource limits
-LimitNOFILE=65536
-LimitNPROC=512
 
 [Install]
 WantedBy=multi-user.target

@@ -1,16 +1,25 @@
 {
-  "ipv6_domain": "ipv6.xerolux.net",
-  "ipv4_domain": "ipv4.xerolux.net",
-  "ispconfig_url": "https://your-ispconfig-server.com:8080",
-  "ispconfig_username": "admin",
-  "ispconfig_password": "your-ispconfig-password",
-  "ispconfig_client_id": "0",
-  "auth_tokens": {
-    "your-secret-token-here": "UniFi-Device-Name",
-    "another-token": "Another-Device"
+  "mode": "both",
+  "domain": "home.example.com",
+  "username": "myuser",
+  "password": "change-me",
+
+  "listen_host": "127.0.0.1",
+  "listen_port": 8080,
+
+  "nginx": {
+    "enabled": true,
+    "template": "/etc/dynipv6/nginx.conf.template",
+    "output": "/etc/nginx/sites-enabled/dynipv6.conf",
+    "reload_command": "systemctl reload nginx"
   },
-  "ssl_cert": "/etc/letsencrypt/live/ipv6.xerolux.net/fullchain.pem",
-  "ssl_key": "/etc/letsencrypt/live/ipv6.xerolux.net/privkey.pem",
-  "port": 5000,
-  "host": "127.0.0.1"
+
+  "ispconfig": {
+    "enabled": false,
+    "url": "https://ispconfig.example.com:8080",
+    "username": "admin",
+    "password": "change-me",
+    "client_id": "0",
+    "verify_ssl": false
+  }
 }
