@@ -15,6 +15,8 @@ Everything is driven by a single config file: /etc/dynipv6/config.json
 import os
 import sys
 import json
+import secrets
+import tempfile
 import ipaddress
 import logging
 import subprocess
@@ -22,6 +24,7 @@ from datetime import datetime
 from pathlib import Path
 
 from flask import Flask, request, jsonify
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 CONFIG_FILE = Path(os.environ.get("DYNIPV6_CONFIG", "/etc/dynipv6/config.json"))
 STATE_FILE = Path(os.environ.get("DYNIPV6_STATE", "/var/lib/dynipv6/state.json"))
@@ -33,6 +36,9 @@ logging.basicConfig(
 log = logging.getLogger("dynipv6")
 
 app = Flask(__name__)
+# Run behind nginx: trust X-Forwarded-For/-Proto/-Host/-Port from the proxy
+# so request.remote_addr is the real client IP, not 127.0.0.1.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_port=1)
 
 
 # --------------------------------------------------------------------------- #
@@ -67,8 +73,14 @@ def load_state():
 
 def save_state(state):
     STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-    with open(STATE_FILE, "w") as f:
-        json.dump(state, f, indent=2)
+    fd, tmp_path = tempfile.mkstemp(dir=STATE_FILE.parent)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(state, f, indent=2)
+        os.replace(tmp_path, STATE_FILE)
+    except Exception:
+        os.unlink(tmp_path)
+        raise
 
 
 config = load_config()
@@ -81,12 +93,20 @@ def authenticated():
     """Accept HTTP Basic auth or username/password query params."""
     user = config.get("username")
     pw = config.get("password")
+    if not user or not pw:
+        return False
+
     auth = request.authorization
-    if auth and auth.username == user and auth.password == pw:
-        return True
+    if auth and auth.username and auth.password:
+        if secrets.compare_digest(auth.username, user) and secrets.compare_digest(auth.password, pw):
+            return True
+
     q_user = request.values.get("username")
     q_pw = request.values.get("password")
-    return q_user == user and q_pw == pw
+    if q_user and q_pw:
+        return secrets.compare_digest(q_user, user) and secrets.compare_digest(q_pw, pw)
+
+    return False
 
 
 def classify_ip(value):
@@ -106,9 +126,21 @@ def render_nginx(state):
     template_path = Path(ng["template"])
     output_path = Path(ng["output"])
     template = template_path.read_text()
+
+    # TARGET resolves to a ready-to-use proxy_pass address: bracketed IPv6
+    # if available, otherwise IPv4. Avoids "proxy_pass http://[]:80;" when
+    # only one address family is known.
+    if state.get("ipv6"):
+        target = f"[{state['ipv6']}]"
+    elif state.get("ipv4"):
+        target = state["ipv4"]
+    else:
+        target = ""
+
     rendered = (
         template
         .replace("{{DOMAIN}}", config.get("domain", ""))
+        .replace("{{TARGET}}", target)
         .replace("{{IPV4}}", state.get("ipv4") or "")
         .replace("{{IPV6}}", state.get("ipv6") or "")
     )
@@ -143,9 +175,11 @@ def update_ispconfig(state):
     )
     domain = config.get("domain")
     if state.get("ipv4"):
-        api.update_or_create_record(domain, "A", state["ipv4"])
+        success = api.update_or_create_record(domain, "A", state["ipv4"])
+        log.info("ISPConfig A record update %s", "succeeded" if success else "failed")
     if state.get("ipv6"):
-        api.update_or_create_record(domain, "AAAA", state["ipv6"])
+        success = api.update_or_create_record(domain, "AAAA", state["ipv6"])
+        log.info("ISPConfig AAAA record update %s", "succeeded" if success else "failed")
 
 
 # --------------------------------------------------------------------------- #
